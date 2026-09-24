@@ -12,6 +12,10 @@
 ## Evaluation Plan Draft
 
 - **Success definition:**
+  Tool meaningfully improves understanding and retention of what was discussed during the meeting
 - **Target users:**
+  Students discussing group work
 - **Method:**
+  We will perform a survey on users after a meeting and the results from group using tool will be compared against control group
 - **Minimum evidence threshold:**
+  Experiment group shows statistically meaningful difference compared to control group.
