@@ -32,13 +32,18 @@ function status(message, error = false) {
 async function api(path, options) {
   const response = await fetch(path, options);
   const body = await response.json();
-  if (!response.ok) throw new Error(body.error || '操作失敗，請稍後再試。');
+  if (!response.ok) {
+    const error = new Error(body.error || '操作失敗，請稍後再試。');
+    error.status = response.status;
+    throw error;
+  }
   return body;
 }
 function count() {
   $('count').textContent = `${$('transcript').value.length.toLocaleString()} / 100,000 字`;
 }
 function render(meeting) {
+  $('conflict-panel').hidden = true;
   current = meeting;
   $('title').value = meeting?.title || '';
   $('transcript').value = meeting?.transcript || '';
@@ -84,29 +89,62 @@ async function loadList() {
 }
 function setBusy(value) {
   busy = value;
-  for (const id of ['title', 'transcript', 'save', 'new', 'refresh', 'import-file', 'restore', 'discard', 'keep-draft']) $(id).disabled = value;
+  for (const id of ['title', 'transcript', 'save', 'new', 'refresh', 'import-file', 'restore', 'discard', 'keep-draft', 'save-copy', 'reload-latest', 'download']) $(id).disabled = value;
 }
 $('title').addEventListener('input', markDirty);
 $('transcript').addEventListener('input', markDirty);
-$('form').addEventListener('submit', async (event) => {
-  event.preventDefault();
+async function saveMeeting(asCopy = false) {
   if (busy) return;
   if (!$('title').value.trim() || !$('transcript').value.trim()) return status('標題與會議內容不能只有空白。', true);
   setBusy(true);
   status('正在儲存…');
   try {
-    const saved = await api(current ? `/api/meetings/${current.id}` : '/api/meetings', {
-      method: current ? 'PUT' : 'POST',
+    const updating = current && !asCopy;
+    const saved = await api(updating ? `/api/meetings/${current.id}` : '/api/meetings', {
+      method: updating ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({title: $('title').value, transcript: $('transcript').value, ...(current ? {revision: current.revision} : {})}),
+      body: JSON.stringify({title: $('title').value, transcript: $('transcript').value, ...(updating ? {revision: current.revision} : {})}),
     });
     render(saved);
     if (!pendingDraft) clearDraft();
-    status('已儲存。');
+    status(asCopy ? '已另存為新會議，原會議未被修改。' : '已儲存。');
     await loadList();
+  } catch (error) {
+    if (error.status === 409) $('conflict-panel').hidden = false;
+    status(error.message, true);
+  }
+  finally { setBusy(false); }
+}
+$('form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  await saveMeeting();
+});
+$('save-copy').onclick = () => saveMeeting(true);
+$('reload-latest').onclick = async () => {
+  if (busy || !current || !window.confirm('確定捨棄目前輸入並載入最新版？建議先下載文字備份。')) return;
+  setBusy(true);
+  try {
+    const latest = await api(`/api/meetings/${current.id}`);
+    render(latest);
+    if (!pendingDraft) clearDraft();
+    status('已載入最新版。');
   } catch (error) { status(error.message, true); }
   finally { setBusy(false); }
-});
+};
+$('download').onclick = () => {
+  if (busy) return;
+  if (!$('transcript').value.trim()) return status('請先輸入要備份的會議文字。', true);
+  const filename = ($('title').value.trim() || '會議原文').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').slice(0, 80);
+  const url = URL.createObjectURL(new Blob(['\ufeff', $('transcript').value], {type: 'text/plain;charset=utf-8'}));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${filename}.txt`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  status('已請求下載目前文字，請確認瀏覽器下載結果；此操作不會儲存到會議資料庫。');
+};
 $('new').onclick = () => { if (mayLeave()) { render(null); status(''); $('title').focus(); } };
 $('refresh').onclick = loadList;
 window.addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });

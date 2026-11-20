@@ -12,16 +12,16 @@ function browser(draft) {
     if (!elements.has(id)) elements.set(id, {
       value: '', checked: false, hidden: true, dataset: {}, textContent: '', files: [],
       addEventListener(name, fn) { this[name] = fn; },
-      setAttribute() {}, replaceChildren() {}, append() {}, focus() {},
+      setAttribute() {}, replaceChildren() {}, append() {}, focus() {}, click() {}, remove() {},
     });
     return elements.get(id);
   };
   const context = vm.createContext({
-    document: {getElementById: element, querySelectorAll: () => [], createElement: () => element(Symbol())},
+    document: {getElementById: element, querySelectorAll: () => [], createElement: () => element(Symbol()), body: {append() {}}},
     window: {confirm: () => true, addEventListener() {}},
     localStorage: {getItem: k => storage.get(k) || null, setItem: (k,v) => storage.set(k,v), removeItem: k => storage.delete(k)},
     fetch: async () => ({ok: true, json: async () => ({meetings: []})}),
-    TextDecoder, Date, console,
+    TextDecoder, Date, console, Blob, URL, setTimeout: fn => fn(),
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../static/app.js'), 'utf8'), context);
   return {element, storage, context};
@@ -87,4 +87,65 @@ test('storage failure keeps form input available', () => {
   e('title').input();
   assert.equal(e('title').value, '不可遺失');
   assert.equal(e('status').dataset.error, 'true');
+});
+
+function existingMeeting() {
+  const meeting = {id: 'original', revision: 1, title: '原標題', transcript: '原文'};
+  const setup = browser({title: '我的標題', transcript: '我的未儲存文字', current: meeting});
+  setup.element('restore').onclick();
+  return setup;
+}
+test('409 exposes recovery without discarding local text or stale revision', async () => {
+  const {element: e, context} = existingMeeting();
+  context.fetch = async () => ({ok: false, status: 409, json: async () => ({error: '版本衝突'})});
+  await e('form').submit({preventDefault() {}});
+  assert.equal(e('conflict-panel').hidden, false);
+  assert.equal(e('transcript').value, '我的未儲存文字');
+  assert.equal(e('save-copy').disabled, false);
+});
+test('save copy posts a new record without revision and switches to it', async () => {
+  const {element: e, context} = existingMeeting();
+  let payload;
+  context.fetch = async (url, options) => {
+    if (!options) return {ok: true, json: async () => ({meetings: []})};
+    assert.equal(url, '/api/meetings');
+    assert.equal(options.method, 'POST');
+    payload = JSON.parse(options.body);
+    return {ok: true, json: async () => ({...payload, id: 'copy', revision: 1})};
+  };
+  await e('save-copy').onclick();
+  assert.equal(payload.transcript, '我的未儲存文字');
+  assert.equal('revision' in payload, false);
+  assert.equal(e('conflict-panel').hidden, true);
+  assert.match(e('status').textContent, /另存/);
+});
+test('cancel or failed latest reload preserves local input', async () => {
+  const {element: e, context} = existingMeeting();
+  context.window.confirm = () => false;
+  await e('reload-latest').onclick();
+  assert.equal(e('transcript').value, '我的未儲存文字');
+  context.window.confirm = () => true;
+  context.fetch = async () => {throw new Error('offline');};
+  await e('reload-latest').onclick();
+  assert.equal(e('transcript').value, '我的未儲存文字');
+  assert.equal(e('status').dataset.error, 'true');
+});
+test('confirmed reload replaces input and clears recovered draft', async () => {
+  const {element: e, context, storage} = existingMeeting();
+  context.fetch = async () => ({ok: true, json: async () => ({id: 'original', revision: 2, title: '最新', transcript: '新版'})});
+  await e('reload-latest').onclick();
+  assert.equal(e('transcript').value, '新版');
+  assert.equal(storage.size, 0);
+});
+test('download preserves unsaved text and exports UTF-8 text only', async () => {
+  const {element: e, context} = existingMeeting();
+  let blob, anchor, revoked;
+  context.URL = {createObjectURL: value => {blob = value; return 'blob:test';}, revokeObjectURL: value => {revoked = value;}};
+  context.document.createElement = () => (anchor = {click() {}, remove() {}});
+  e('title').value = 'a/b';
+  e('download').onclick();
+  assert.equal(await blob.text(), '我的未儲存文字');
+  assert.equal(anchor.download, 'a_b.txt');
+  assert.equal(revoked, 'blob:test');
+  assert.equal(e('transcript').value, '我的未儲存文字');
 });
