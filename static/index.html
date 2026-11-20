@@ -29,6 +29,12 @@
       <label class="draft-option"><input id="keep-draft" type="checkbox"> 在此瀏覽器保留未儲存草稿</label>
       <p class="hint">草稿會留在這台裝置，供意外關閉後復原；不會自動送出。共用電腦使用完畢請清除草稿。</p>
       <div class="actions"><button id="save" class="primary" type="submit">儲存會議</button><span id="status" role="status" aria-live="polite"></span></div>
+      <div id="conflict-panel" hidden role="region" aria-label="處理版本衝突">
+        <p>另一個分頁已更新此會議。你的輸入仍保留在這裡，可另存新會議，或先下載備份再載入最新版。</p>
+        <button id="save-copy" type="button">另存為新會議</button>
+        <button id="reload-latest" type="button">捨棄目前輸入並載入最新版</button>
+      </div>
+      <button id="download" type="button">下載目前文字備份</button>
       <p id="metadata" class="hint"></p>
     </form>
   </section>
