@@ -17,7 +17,7 @@
     <h1>先記下內容，再一起整理。</h1>
     <p class="intro">貼上逐字稿或文字討論紀錄，儲存這次會議的原始內容。</p>
     <form id="form">
-      <div id="draft-banner" hidden><p>此瀏覽器有一份尚未完成的草稿。</p><button id="restore" type="button">恢復草稿</button> <button id="discard" type="button">清除草稿</button></div>
+      <div id="draft-banner" hidden><p>此瀏覽器有一份對應目前表單的草稿。</p><button id="restore" type="button">恢復草稿</button> <button id="discard" type="button">清除草稿</button></div>
       <label for="title">會議標題</label>
       <input id="title" name="title" required maxlength="120" placeholder="例如：CP2 功能分工討論" autocomplete="off">
       <label for="import-file" class="import-label">匯入文字逐字稿（UTF-8 .txt）</label>
@@ -27,10 +27,10 @@
       <textarea id="transcript" name="transcript" required maxlength="100000" rows="15" placeholder="在這裡貼上討論內容。可以保留發言者名稱與時間，方便後續確認。"></textarea>
       <p class="hint">儲存後可從左側重新開啟。此步驟保存原文，尚未產生 AI 摘要。</p>
       <label class="draft-option"><input id="keep-draft" type="checkbox"> 在此瀏覽器保留未儲存草稿</label>
-      <p class="hint">草稿會留在這台裝置，供意外關閉後復原；不會自動送出。共用電腦使用完畢請清除草稿。</p>
-      <div class="actions"><button id="save" class="primary" type="submit">儲存會議</button><span id="status" role="status" aria-live="polite"></span></div>
+      <p class="hint">草稿依會議保存在此瀏覽器。重新開啟該會議即可恢復。共用電腦使用完畢請清除草稿。</p>
+      <div class="actions"><button id="save" class="primary" type="submit">儲存會議</button><button id="delete" type="button" hidden>刪除會議紀錄</button><span id="status" role="status" aria-live="polite"></span></div>
       <div id="conflict-panel" hidden role="region" aria-label="處理版本衝突">
-        <p>另一個分頁已更新此會議。你的輸入仍保留在這裡，可另存新會議，或先下載備份再載入最新版。</p>
+        <p>此會議已被更新或刪除。你可以另存新會議，或下載目前文字備份。</p>
         <button id="save-copy" type="button">另存為新會議</button>
         <button id="reload-latest" type="button">捨棄目前輸入並載入最新版</button>
       </div>
