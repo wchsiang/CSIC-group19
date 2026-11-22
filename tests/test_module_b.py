@@ -129,6 +129,24 @@ class ModuleBTest(unittest.TestCase):
         self.assertIsNotNone(direct)
         self.assertEqual(direct['source_revision'], 1)
 
+    def test_delete_meeting_cleans_up_summary(self):
+        status, meeting = self.request('/api/meetings', 'POST', {
+            'title': '待刪除會議',
+            'transcript': '小明：這場會議將被刪除。'
+        })
+        meeting_id = meeting['id']
+        status, summary = self.request(f'/api/meetings/{meeting_id}/summary', 'POST')
+        self.assertEqual(status, 201)
+
+        # Delete meeting
+        status, deleted = self.request(f'/api/meetings/{meeting_id}', 'DELETE', {'revision': 1})
+        self.assertEqual(status, 200)
+
+        # Both meeting and summary should be 404
+        self.assertEqual(self.request(f'/api/meetings/{meeting_id}')[0], 404)
+        self.assertEqual(self.request(f'/api/meetings/{meeting_id}/summary')[0], 404)
+        self.assertIsNone(Store(self.db).get_summary(meeting_id))
+
     def test_summary_staleness_lifecycle(self):
         status, meeting = self.request('/api/meetings', 'POST', {
             'title': '初始分工',
