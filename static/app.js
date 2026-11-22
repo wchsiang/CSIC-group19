@@ -220,10 +220,8 @@ $('reload-latest').onclick = async () => {
 $('download').onclick = () => {
   if (busy) return;
   if (!$('transcript').value.trim()) return status('請先輸入要備份的會議文字。', true);
-  const title = $('title').value.trim() || '會議原文';
-  const filename = title.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').slice(0, 80);
-  const content = `會議標題：${title}\n匯出時間：${new Date().toLocaleString()}\n--------------------\n\n${$('transcript').value}`;
-  const url = URL.createObjectURL(new Blob(['\ufeff', content], {type: 'text/plain;charset=utf-8'}));
+  const filename = ($('title').value.trim() || '會議原文').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').slice(0, 80);
+  const url = URL.createObjectURL(new Blob(['\ufeff', $('transcript').value], {type: 'text/plain;charset=utf-8'}));
   const link = document.createElement('a');
   link.href = url;
   link.download = `${filename}.txt`;
