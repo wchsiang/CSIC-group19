@@ -3,8 +3,10 @@ let current = null;
 let dirty = false;
 let busy = false;
 const LEGACY_DRAFT_KEY = 'csic19.meeting-input.draft.v1';
+const LLM_SETTINGS_KEY = 'csic19.llm.settings.v1';
 let pendingDraft = null;
 let storedDraft = null;
+let currentSummary = null;
 
 function draftKey() { return `csic19.draft.${current?.id ?? 'new'}`; }
 function readDraft(recoverLegacy = false) {
@@ -51,7 +53,6 @@ function clearDraft() {
 }
 function saveDraft() {
   if (!$('keep-draft').checked || !dirty) return;
-  // Do not replace an older recoverable draft without an explicit choice.
   if (pendingDraft) return;
   try {
     const key = draftKey();
@@ -104,6 +105,16 @@ function render(meeting) {
     button.setAttribute('aria-current', String(button.dataset.id === meeting?.id));
   });
   readDraft();
+
+  if (meeting) {
+    $('summary-section').hidden = false;
+    loadSummary(meeting.id);
+  } else {
+    currentSummary = null;
+    $('summary-section').hidden = true;
+    if ($('summary-edit-form')) $('summary-edit-form').hidden = true;
+    if ($('edit-summary')) $('edit-summary').hidden = true;
+  }
 }
 function mayLeave() {
   return !busy && (!dirty || window.confirm('有尚未儲存的內容，確定要離開這份輸入嗎？'));
@@ -139,7 +150,10 @@ async function loadList() {
 }
 function setBusy(value) {
   busy = value;
-  for (const id of ['title', 'transcript', 'save', 'delete', 'new', 'refresh', 'import-file', 'restore', 'discard', 'keep-draft', 'save-copy', 'reload-latest', 'download']) $(id).disabled = value;
+  for (const id of ['title', 'transcript', 'save', 'delete', 'new', 'refresh', 'import-file', 'restore', 'discard', 'keep-draft', 'save-copy', 'reload-latest', 'download', 'generate-summary', 'open-settings', 'edit-summary', 'add-action-item', 'save-summary-edit', 'cancel-summary-edit']) {
+    const el = $(id);
+    if (el) el.disabled = value;
+  }
 }
 $('title').addEventListener('input', markDirty);
 $('transcript').addEventListener('input', markDirty);
@@ -263,5 +277,357 @@ $('import-file').onchange = async () => {
     status(error instanceof TypeError ? '無法讀取文字檔，請使用 UTF-8 編碼的 .txt。' : error.message, true);
   } finally { $('import-file').value = ''; setBusy(false); }
 };
+
+// Module B: LLM Settings & Summary Management
+function getLLMSettings() {
+  try {
+    const raw = localStorage.getItem(LLM_SETTINGS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return { provider: 'gemini', api_key: '', model: '' };
+}
+function saveLLMSettings(settings) {
+  try {
+    localStorage.setItem(LLM_SETTINGS_KEY, JSON.stringify(settings));
+    return true;
+  } catch { return false; }
+}
+
+const PROVIDER_INFO = {
+  gemini: {
+    link: 'https://aistudio.google.com/apikey',
+    linkText: '👉 免費取得 Gemini 金鑰',
+    keyPlaceholder: '貼上你的 Gemini API Key (AIza...)',
+    modelPlaceholder: '例如：gemini-3.5-flash',
+  },
+  claude: {
+    link: 'https://console.anthropic.com/settings/keys',
+    linkText: '👉 取得 Claude 金鑰 (Anthropic Console)',
+    keyPlaceholder: '貼上你的 Claude API Key (sk-ant-...)',
+    modelPlaceholder: '例如：claude-3-5-haiku-20241022',
+  },
+  openai: {
+    link: 'https://platform.openai.com/api-keys',
+    linkText: '👉 取得 OpenAI 金鑰 (OpenAI Platform)',
+    keyPlaceholder: '貼上你的 OpenAI API Key (sk-...)',
+    modelPlaceholder: '例如：gpt-4o-mini',
+  },
+  heuristic: {
+    link: '#',
+    linkText: '（離線規則抽取無需金鑰）',
+    keyPlaceholder: '無需輸入金鑰',
+    modelPlaceholder: '本機規則引擎',
+  }
+};
+
+function updateProviderUI(provider) {
+  const info = PROVIDER_INFO[provider] || PROVIDER_INFO.gemini;
+  $('get-key-link').href = info.link;
+  $('get-key-link').textContent = info.linkText;
+  $('api-key-input').placeholder = info.keyPlaceholder;
+  $('model-input').placeholder = info.modelPlaceholder;
+  $('key-container').hidden = (provider === 'heuristic');
+}
+
+$('open-settings').onclick = () => {
+  const settings = getLLMSettings();
+  $('provider-select').value = settings.provider || 'gemini';
+  $('api-key-input').value = settings.api_key || '';
+  $('model-input').value = settings.model || '';
+  updateProviderUI(settings.provider || 'gemini');
+  $('test-status').textContent = '';
+  $('settings-dialog').showModal();
+};
+
+$('close-settings').onclick = () => $('settings-dialog').close();
+
+$('provider-select').onchange = () => {
+  updateProviderUI($('provider-select').value);
+  $('test-status').textContent = '';
+};
+
+$('toggle-key-visibility').onclick = () => {
+  const input = $('api-key-input');
+  input.type = input.type === 'password' ? 'text' : 'password';
+};
+
+$('test-key-btn').onclick = async () => {
+  const provider = $('provider-select').value;
+  const api_key = $('api-key-input').value.trim();
+  const model = $('model-input').value.trim();
+  if (provider === 'heuristic') {
+    $('test-status').textContent = '✅ 本機離線規則抽取隨時可用，無需連線。';
+    $('test-status').dataset.error = 'false';
+    return;
+  }
+  if (!api_key) {
+    $('test-status').textContent = '請先填入 API Key 再測試連線。';
+    $('test-status').dataset.error = 'true';
+    return;
+  }
+  $('test-status').textContent = '正在測試連線中…';
+  $('test-status').dataset.error = 'false';
+  try {
+    const res = await api('/api/test-llm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, api_key, model })
+    });
+    $('test-status').textContent = `✅ ${res.message}`;
+    $('test-status').dataset.error = 'false';
+  } catch (err) {
+    $('test-status').textContent = `❌ ${err.message}`;
+    $('test-status').dataset.error = 'true';
+  }
+};
+
+$('save-settings-btn').onclick = (e) => {
+  e.preventDefault();
+  const provider = $('provider-select').value;
+  const api_key = $('api-key-input').value.trim();
+  const model = $('model-input').value.trim();
+  saveLLMSettings({ provider, api_key, model });
+  $('settings-dialog').close();
+  status(`已儲存 AI 模型設定（${provider}）。`);
+};
+
+$('clear-settings-btn').onclick = () => {
+  if (window.confirm('確定清除已儲存的 API Key？')) {
+    saveLLMSettings({ provider: 'gemini', api_key: '', model: '' });
+    $('api-key-input').value = '';
+    $('model-input').value = '';
+    $('test-status').textContent = '已清除金鑰。';
+  }
+};
+
+async function loadSummary(meetingId) {
+  try {
+    const data = await api(`/api/meetings/${meetingId}/summary`);
+    renderSummary(data);
+  } catch (error) {
+    if (error.status === 404) {
+      currentSummary = null;
+      $('summary-content').hidden = true;
+      if ($('summary-edit-form')) $('summary-edit-form').hidden = true;
+      if ($('edit-summary')) $('edit-summary').hidden = true;
+      $('no-summary-hint').hidden = false;
+      $('stale-warning').hidden = true;
+      $('summary-badge').textContent = '尚未產生';
+      $('summary-badge').className = 'badge';
+      $('summary-provider').textContent = '';
+      $('generate-summary').textContent = '✨ 產生 AI 摘要與待辦';
+    } else {
+      status(`無法載入 AI 摘要：${error.message}`, true);
+    }
+  }
+}
+
+function renderSummary(data) {
+  currentSummary = data;
+  $('summary-content').hidden = false;
+  if ($('summary-edit-form')) $('summary-edit-form').hidden = true;
+  if ($('edit-summary')) $('edit-summary').hidden = false;
+  $('no-summary-hint').hidden = true;
+  $('summary-text').textContent = data.summary;
+
+  $('decisions-list').replaceChildren();
+  if (data.decisions && data.decisions.length > 0) {
+    for (const dec of data.decisions) {
+      const li = document.createElement('li');
+      li.textContent = dec;
+      $('decisions-list').append(li);
+    }
+  } else {
+    const li = document.createElement('li');
+    li.textContent = '本次會議無明確共識決策紀錄。';
+    li.className = 'hint';
+    $('decisions-list').append(li);
+  }
+
+  $('action-items-body').replaceChildren();
+  if (data.action_items && data.action_items.length > 0) {
+    for (const item of data.action_items) {
+      const tr = document.createElement('tr');
+      const tdAssignee = document.createElement('td');
+      tdAssignee.textContent = item.assignee || '未指派';
+      const tdTask = document.createElement('td');
+      tdTask.textContent = item.task;
+      const tdDue = document.createElement('td');
+      tdDue.textContent = item.due || '未指定期限';
+      tr.append(tdAssignee, tdTask, tdDue);
+      $('action-items-body').append(tr);
+    }
+  } else {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 3;
+    td.textContent = '無待辦事項紀錄。';
+    td.className = 'hint';
+    tr.append(td);
+    $('action-items-body').append(tr);
+  }
+
+  if (data.is_stale) {
+    $('stale-warning').hidden = false;
+    $('stale-src-rev').textContent = data.source_revision;
+    $('stale-curr-rev').textContent = current?.revision || data.source_revision;
+    $('summary-badge').textContent = '⚠️ 摘要待更新';
+    $('summary-badge').className = 'badge badge-warning';
+  } else {
+    $('stale-warning').hidden = true;
+    $('summary-badge').textContent = `已同步 (v${data.source_revision})`;
+    $('summary-badge').className = 'badge badge-success';
+  }
+
+  $('summary-provider').textContent = data.provider ? `✨ 由 ${data.provider} 整理` : '';
+  $('summary-meta').textContent = `最後整理時間：${new Date(data.updated_at).toLocaleString()}`;
+  $('generate-summary').textContent = '🔄 重新產生摘要';
+}
+
+$('generate-summary').onclick = async () => {
+  if (busy || !current) return;
+  if (dirty && !window.confirm('目前會議內容有尚未儲存的變更。產生摘要將使用已儲存的內容，是否繼續？')) return;
+  setBusy(true);
+
+  const settings = getLLMSettings();
+  const providerLabel = settings.provider === 'claude' ? 'Claude' : (settings.provider === 'gemini' ? 'Gemini' : (settings.provider === 'openai' ? 'OpenAI' : '本機離線規則'));
+  status(`正在透過 ${providerLabel} 分析並整理會議逐字稿…`);
+
+  try {
+    const payload = (settings.provider !== 'heuristic' && settings.api_key) ? {
+      provider: settings.provider,
+      api_key: settings.api_key,
+      model: settings.model || undefined
+    } : { provider: settings.provider };
+
+    const summary = await api(`/api/meetings/${current.id}/summary`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    renderSummary(summary);
+    status(`已完成 AI 會議整理（${summary.provider || providerLabel}）。`);
+  } catch (error) {
+    status(error.message, true);
+  } finally {
+    setBusy(false);
+  }
+};
+
+function createActionItemRow(item = { assignee: '', task: '', due: '' }) {
+  const tr = document.createElement('tr');
+
+  const tdAssignee = document.createElement('td');
+  const inputAssignee = document.createElement('input');
+  inputAssignee.type = 'text';
+  inputAssignee.className = 'edit-assignee';
+  inputAssignee.placeholder = '例如：小明';
+  inputAssignee.value = (item.assignee === '未指派' ? '' : (item.assignee || ''));
+  tdAssignee.append(inputAssignee);
+
+  const tdTask = document.createElement('td');
+  const inputTask = document.createElement('input');
+  inputTask.type = 'text';
+  inputTask.className = 'edit-task';
+  inputTask.placeholder = '待辦工作項目';
+  inputTask.value = item.task || '';
+  tdTask.append(inputTask);
+
+  const tdDue = document.createElement('td');
+  const inputDue = document.createElement('input');
+  inputDue.type = 'text';
+  inputDue.className = 'edit-due';
+  inputDue.placeholder = '完成期限（無則留空）';
+  inputDue.value = item.due || '';
+  tdDue.append(inputDue);
+
+  const tdAction = document.createElement('td');
+  tdAction.style.textAlign = 'center';
+  const btnDel = document.createElement('button');
+  btnDel.type = 'button';
+  btnDel.className = 'btn-del-row';
+  btnDel.textContent = '🗑️';
+  btnDel.title = '刪除此項';
+  btnDel.onclick = () => tr.remove();
+  tdAction.append(btnDel);
+
+  tr.append(tdAssignee, tdTask, tdDue, tdAction);
+  return tr;
+}
+
+$('edit-summary').onclick = () => {
+  if (busy || !currentSummary) return;
+  $('edit-summary-text').value = currentSummary.summary || '';
+  $('edit-decisions-text').value = (currentSummary.decisions || []).join('\n');
+
+  $('edit-action-items-body').replaceChildren();
+  if (currentSummary.action_items && currentSummary.action_items.length > 0) {
+    for (const item of currentSummary.action_items) {
+      $('edit-action-items-body').append(createActionItemRow(item));
+    }
+  } else {
+    $('edit-action-items-body').append(createActionItemRow());
+  }
+
+  $('summary-content').hidden = true;
+  $('summary-edit-form').hidden = false;
+  $('edit-summary-text').focus();
+};
+
+$('add-action-item').onclick = () => {
+  $('edit-action-items-body').append(createActionItemRow());
+};
+
+$('cancel-summary-edit').onclick = () => {
+  $('summary-edit-form').hidden = true;
+  $('summary-content').hidden = false;
+};
+
+$('save-summary-edit').onclick = async () => {
+  if (busy || !current) return;
+  const summary = $('edit-summary-text').value.trim();
+  if (!summary) return status('會議摘要內容不能為空。', true);
+
+  const decisions = $('edit-decisions-text').value
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  const action_items = [];
+  const rows = $('edit-action-items-body').querySelectorAll('tr');
+  for (const tr of rows) {
+    const assigneeInput = tr.querySelector('.edit-assignee');
+    const taskInput = tr.querySelector('.edit-task');
+    const dueInput = tr.querySelector('.edit-due');
+    if (!taskInput) continue;
+    const task = taskInput.value.trim();
+    if (!task) continue;
+    const assignee = assigneeInput ? assigneeInput.value.trim() || '未指派' : '未指派';
+    const due = dueInput && dueInput.value.trim() ? dueInput.value.trim() : null;
+    action_items.push({ assignee, task, due });
+  }
+
+  setBusy(true);
+  status('正在儲存人工微調的摘要與待辦…');
+  try {
+    const updated = await api(`/api/meetings/${current.id}/summary`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        summary,
+        decisions,
+        action_items,
+        provider: '人工微調'
+      })
+    });
+    renderSummary(updated);
+    status('已成功儲存人工微調的會議摘要與待辦事項。');
+  } catch (error) {
+    status(error.message, true);
+  } finally {
+    setBusy(false);
+  }
+};
+
 readDraft(true);
 loadList();

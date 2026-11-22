@@ -30,3 +30,37 @@ Why: volunteered.
 
 - ## 2026-11-23 — Code steward 交接
 自 2026-11-23 起，由林為皓接任温竣翔的 code steward 職務。
+## 2026-11-22 — B 模組：AI 會議整理與待辦萃取架構
+
+狀態：Module B 實作完成，待團隊審查。
+
+- 問題：學生開會時需手動筆記容易分心；B 模組需自動從會議逐字稿中萃取會議摘要、重要共識決策與行動項目（分工與期限）。
+- 選擇：
+  1. **資料架構**：採獨立 `summaries` 資料表（`meeting_id`, `source_revision`, `summary`, `decisions`, `action_items`, `provider`），以外鍵關聯 `meetings` 表；**絕對不覆寫原文**。
+  2. **版本過期偵測（Staleness Detection）**：記錄 `source_revision`。當原文 `revision` 大於 `source_revision` 時，系統自動標記 `is_stale: true` 並在介面提示使用者重新產生。
+  3. **分析引擎**：採用「本機確定性語法與規則萃取 + 可選環境變數 LLM 擴充」，確保在無網路、無外部 API 金鑰的環境下 100% 可單元測試與離線運行。
+  4. **嚴格禁止捏造期限**：恪守「AI 不應替沒有明確期限的工作自行設定日期」原則，僅於原文明確提及時間時標記 `due`，未提及則填 `None`。
+- 證據：`summarizer.py`、`app.py`、`tests/test_module_b.py`、`static/`。
+
+## 2026-11-22 — B 模組多模型支援與介面金鑰設定（Gemini / Claude / OpenAI）
+
+狀態：已完成實作並通過單元測試。
+
+- 問題：單純依賴本機關鍵字抽取規則過於僵硬，無法理解口語化語境；且使用者需至系統終端機手動配置環境變數，操作門檻高，且原先發生 API 錯誤時容易被靜默吞沒。
+- 選擇：
+  1. **多模型支援**：全面支援 **Google Gemini**（`gemini-3.5-flash`）、**Anthropic Claude**（`claude-3-5-haiku-20241022`）與 **OpenAI**（`gpt-4o-mini`），均以 Python 原生標準庫 `urllib.request` 實作，維持零第三方套件依賴。
+  2. **網頁介面金鑰設定**：提供「⚙️ AI 模型設定」彈出視窗，金鑰安全暫存於使用者瀏覽器（`localStorage`），每次呼叫以同源請求轉發，絕不寫入後端資料庫。
+  3. **透明錯誤反饋**：去除靜默忽略錯誤的寫法；若填入之金鑰失效或連線異常，直接返回具體錯誤訊息，並提供連線測試按鈕（`POST /api/test-llm`）。
+  4. **相容性與離線保障**：若未填入金鑰，系統平滑支援「本機離線規則抽取」，CI 測試中亦透過 Mock 模擬模型回傳，確保離線與自動化測試 100% 穩定。
+- 證據：`summarizer.py`、`app.py`、`static/index.html`、`static/app.js`、`static/style.css`、`tests/test_module_b.py`。
+
+## 2026-11-22 — 前端視覺化人工微調編輯模式（摘要、決策與待辦表格）
+
+狀態：已完成實作並通過單元測試。
+
+- 問題：AI 自動整理生成的內容偶有未盡事宜或需要微調，先前僅後端提供 PUT API，一般使用者無法在網頁介面上直接調整內容。
+- 選擇：
+  1. 在「AI 整理與會議結論」區塊新增「✏️ 編輯」按鈕，點擊後於原位切換為編輯模式表單。
+  2. 摘要以多行文字框（Textarea）編輯，決策支援換行直接增刪改，待辦表格支援單列即時修改、增行與刪除列。
+  3. 儲存時前端自動發送 `PUT /api/meetings/{id}/summary`，將來源標籤更新為 `✨ 由 人工微調 整理`，不影響原文版本與 revision 樂觀鎖衝突機制。
+- 證據：`static/index.html`、`static/app.js`、`static/style.css`、`tests/test_module_b.py`。
