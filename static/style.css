@@ -24,6 +24,13 @@
 .styled-table th{background:#f1f5f9;color:#334155;font-weight:600}
 .styled-table tr:last-child td{border-bottom:0}
 .styled-table tr:hover td{background:#f8fafc}
+.summary-header-actions{display:flex;align-items:center;gap:8px}
+.summary-edit-form{background:#f8fafc;border:1px solid #cbd5e1;border-radius:12px;padding:24px;margin-top:16px}
+.summary-edit-form textarea{background:white}
+.edit-table td{padding:6px 10px}
+.edit-table input{padding:7px 10px;font-size:.9rem;background:white}
+.btn-del-row{background:transparent;border:1px solid #cbd5e1;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:.9rem}
+.btn-del-row:hover{background:#fee2e2;border-color:#fca5a5}
 #summary-meta{margin-top:12px}
 
 /* Header & Settings Button */

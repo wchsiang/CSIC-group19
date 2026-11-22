@@ -188,13 +188,15 @@ class ModuleBTest(unittest.TestCase):
         update_payload = {
             'summary': '經過團隊討論修改後的摘要。',
             'decisions': ['團隊決策 A', '團隊決策 B'],
-            'action_items': [{'assignee': '小明', 'task': '執行測試', 'due': '明天'}]
+            'action_items': [{'assignee': '小明', 'task': '執行測試', 'due': '明天'}],
+            'provider': '人工微調'
         }
         status, updated = self.request(f'/api/meetings/{meeting_id}/summary', 'PUT', update_payload)
         self.assertEqual(status, 200)
         self.assertEqual(updated['summary'], '經過團隊討論修改後的摘要。')
         self.assertEqual(len(updated['decisions']), 2)
         self.assertEqual(updated['action_items'][0]['due'], '明天')
+        self.assertEqual(updated['provider'], '人工微調')
 
     def test_summary_error_handling(self):
         status, _ = self.request('/api/meetings/non-existent-id/summary')
