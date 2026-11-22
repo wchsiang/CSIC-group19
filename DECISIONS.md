@@ -20,4 +20,23 @@ Why: volunteered.
 - 待確認：是否接受此技術、API 欄位、B 的來源 revision、C 的成員與確認資料、D 的待辦資料。若團隊已有未公開實作，應對齊其介面。
 - 證據：`app.py`、`static/`、`tests/`、`docs/verification.md`、`docs/prompt_log.md`。
 
-合併前需補上審查者、審查結果、PR 連結；不得填入未發生的團隊活動或 approvals。
+## 2026-11-20 — 會議原文衝突復原選擇（PR 2）
+
+狀態：已由 Howard Lin 提案並實作，待 Code Steward review。
+
+- 問題：版本衝突（409）發生時，舊版僅能提示錯誤，使用者需自行複製文字至剪貼簿，容易造成資料遺失。
+- 選擇：沿用 revision 機制，新增「另存新會議」（POST 全新會議紀錄）與「確認捨棄後載入最新版」（GET 刷新），並提供純前端 UTF-8 .txt 本機備份下載。
+- 理由：維持資料一致性，拒絕自動累加 revision 強制覆蓋他人更新；另存可保住輸入文字，同時維護最新版本紀錄。
+- 證據：`static/app.js`、`static/index.html`、`tests/test_frontend.cjs`。
+
+## 2026-11-22 — B 模組：AI 會議整理與待辦萃取架構
+
+狀態：Module B 實作完成，待團隊審查。
+
+- 問題：學生開會時需手動筆記容易分心；B 模組需自動從會議逐字稿中萃取會議摘要、重要共識決策與行動項目（分工與期限）。
+- 選擇：
+  1. **資料架構**：採獨立 `summaries` 資料表（`meeting_id`, `source_revision`, `summary`, `decisions`, `action_items`），以外鍵關聯 `meetings` 表；**絕對不覆寫原文**。
+  2. **版本過期偵測（Staleness Detection）**：記錄 `source_revision`。當原文 `revision` 大於 `source_revision` 時，系統自動標記 `is_stale: true` 並在介面提示使用者重新產生。
+  3. **分析引擎**：採用「本機確定性語法與規則萃取 + 可選環境變數 LLM 擴充」，確保在無網路、無外部 API 金鑰的環境下 100% 可單元測試與離線運行。
+  4. **嚴格禁止捏造期限**：恪守「AI 不應替沒有明確期限的工作自行設定日期」原則，僅於原文明確提及時間時標記 `due`，未提及則填 `None`。
+- 證據：`summarizer.py`、`app.py`、`tests/test_module_b.py`、`static/`。

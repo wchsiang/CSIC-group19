@@ -1,4 +1,18 @@
-# AI interaction log — A module
+# AI interaction log — A & B modules
+
+## B 模組：AI 會議整理與待辦萃取（2026-11-22）
+
+使用者提示原文：「請幫我實作module B的部分，並新增test_module來驗證程式碼的可行性」
+
+採用：
+1. `summarizer.py`：實作逐字稿分析引擎，從會議內容萃取結構化 `summary`（摘要）、`decisions`（決策共識）、`action_items`（分工與期限）。嚴格遵守「AI 不應替沒有明確期限的工作自行設定日期」限制；未提供 API 金鑰時使用內建自然語言規則引擎，可單元測試與離線使用；具備 LLM 呼叫接口。
+2. `app.py`：新增 `summaries` 資料表，以外鍵關聯 `meetings` 表；實作 `POST /api/meetings/{id}/summary`（產生摘要）、`GET /api/meetings/{id}/summary`（讀取摘要，自動比對 `source_revision` 與 `revision` 判斷是否過期 `is_stale`）、`PUT /api/meetings/{id}/summary`（支援手動編輯調整）。
+3. `tests/test_module_b.py`：新增獨立測試模組，包含虛構逐字稿萃取規則驗證（含無明確期限不虛構日期、否定決策排除）、API 完整生命週期與資料庫持久化、原文修改後 `is_stale` 過期偵測與重產更新、手動編輯更新及錯誤邊界處理。
+4. `static/`：前端增加「AI 整理與會議結論」區塊，含即時狀態 Badge、過期警示 Banner、重要決策清單、分工行動項目表格，以及「產生／重新產生摘要」互動按鈕。
+
+AI 工具：Antigravity AI (Gemini)。
+
+---
 
 ## 後續：版本衝突復原（2026-11-20）
 

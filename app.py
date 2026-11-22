@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from summarizer import analyze_transcript
 
 ROOT = Path(__file__).resolve().parent
 MAX_BODY = 1_000_000
@@ -19,6 +20,15 @@ class Store:
             db.execute('''CREATE TABLE IF NOT EXISTS meetings (
                 id TEXT PRIMARY KEY, title TEXT NOT NULL, transcript TEXT NOT NULL,
                 revision INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)''')
+            db.execute('''CREATE TABLE IF NOT EXISTS summaries (
+                meeting_id TEXT PRIMARY KEY,
+                source_revision INTEGER NOT NULL,
+                summary TEXT NOT NULL,
+                decisions TEXT NOT NULL,
+                action_items TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE)''')
 
     @contextmanager
     def connect(self):
@@ -73,6 +83,56 @@ class Store:
             row = db.execute('SELECT * FROM meetings WHERE id=?', (meeting_id,)).fetchone()
             return dict(row)
 
+    def get_summary(self, meeting_id):
+        with self.connect() as db:
+            meeting = db.execute('SELECT revision FROM meetings WHERE id=?', (meeting_id,)).fetchone()
+            if not meeting:
+                return None
+            row = db.execute('SELECT * FROM summaries WHERE meeting_id=?', (meeting_id,)).fetchone()
+            if not row:
+                return None
+            data = dict(row)
+            data['is_stale'] = (data['source_revision'] < meeting['revision'])
+            data['decisions'] = json.loads(data['decisions'])
+            data['action_items'] = json.loads(data['action_items'])
+            return data
+
+    def save_summary(self, meeting_id, source_revision, summary, decisions, action_items):
+        if not isinstance(summary, str) or not summary.strip():
+            raise ValueError('摘要內容不能為空。')
+        if not isinstance(decisions, list):
+            raise ValueError('決策事項需為列表。')
+        if not isinstance(action_items, list):
+            raise ValueError('行動項目需為列表。')
+        now = datetime.now(timezone.utc).isoformat()
+        with self.connect() as db:
+            meeting = db.execute('SELECT revision FROM meetings WHERE id=?', (meeting_id,)).fetchone()
+            if not meeting:
+                raise KeyError(meeting_id)
+            db.execute('''INSERT INTO summaries (meeting_id, source_revision, summary, decisions, action_items, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(meeting_id) DO UPDATE SET
+                    source_revision=excluded.source_revision,
+                    summary=excluded.summary,
+                    decisions=excluded.decisions,
+                    action_items=excluded.action_items,
+                    updated_at=excluded.updated_at
+            ''', (
+                meeting_id,
+                source_revision,
+                summary.strip(),
+                json.dumps(decisions, ensure_ascii=False),
+                json.dumps(action_items, ensure_ascii=False),
+                now,
+                now
+            ))
+            row = db.execute('SELECT * FROM summaries WHERE meeting_id=?', (meeting_id,)).fetchone()
+            data = dict(row)
+            data['is_stale'] = (data['source_revision'] < meeting['revision'])
+            data['decisions'] = json.loads(data['decisions'])
+            data['action_items'] = json.loads(data['action_items'])
+            return data
+
 
 class Conflict(Exception):
     pass
@@ -93,6 +153,15 @@ def handler_for(store):
             path = self.path.split('?', 1)[0]
             if path == '/api/meetings':
                 return self.reply(200, {'meetings': store.list()})
+            if path.startswith('/api/meetings/') and path.endswith('/summary'):
+                meeting_id = path.removeprefix('/api/meetings/').removesuffix('/summary')
+                meeting = store.get(meeting_id)
+                if not meeting:
+                    return self.reply(404, {'error': '找不到會議。'})
+                summary = store.get_summary(meeting_id)
+                if not summary:
+                    return self.reply(404, {'error': '此會議尚未產生 AI 摘要。'})
+                return self.reply(200, summary)
             if path.startswith('/api/meetings/'):
                 meeting = store.get(path.removeprefix('/api/meetings/'))
                 return self.reply(200, meeting) if meeting else self.reply(404, {'error': '找不到會議。'})
@@ -110,8 +179,9 @@ def handler_for(store):
             self.wfile.write(body)
 
         def write_meeting(self, update=False):
+            path = self.path.split('?', 1)[0]
             expected = '/api/meetings/' if update else '/api/meetings'
-            if (update and not self.path.startswith(expected)) or (not update and self.path != expected):
+            if (update and not path.startswith(expected)) or (not update and path != expected):
                 return self.reply(404, {'error': '找不到 API。'})
             # This local API accepts same-origin JSON requests only.
             origin = self.headers.get('Origin')
@@ -124,7 +194,7 @@ def handler_for(store):
                 if length < 1 or length > MAX_BODY:
                     return self.reply(413, {'error': '請求內容過大或為空。'})
                 data = json.loads(self.rfile.read(length).decode('utf-8'))
-                meeting_id = self.path.removeprefix(expected) if update else None
+                meeting_id = path.removeprefix(expected) if update else None
                 if update and not meeting_id:
                     return self.reply(404, {'error': '找不到會議。'})
                 meeting = store.save(data, meeting_id)
@@ -137,9 +207,60 @@ def handler_for(store):
                 return self.reply(400, {'error': str(error)})
 
         def do_POST(self):
+            path = self.path.split('?', 1)[0]
+            if path.startswith('/api/meetings/') and path.endswith('/summary'):
+                meeting_id = path.removeprefix('/api/meetings/').removesuffix('/summary')
+                origin = self.headers.get('Origin')
+                if origin and origin != 'http://' + self.headers.get('Host', ''):
+                    return self.reply(403, {'error': '不接受跨來源請求。'})
+                meeting = store.get(meeting_id)
+                if not meeting:
+                    return self.reply(404, {'error': '找不到會議。'})
+                if not meeting['transcript'].strip():
+                    return self.reply(400, {'error': '會議內容為空，無法產生摘要。'})
+                try:
+                    analysis = analyze_transcript(meeting['transcript'], meeting['title'])
+                    saved = store.save_summary(
+                        meeting_id,
+                        meeting['revision'],
+                        analysis['summary'],
+                        analysis['decisions'],
+                        analysis['action_items']
+                    )
+                    return self.reply(201, saved)
+                except Exception as error:
+                    return self.reply(500, {'error': f'摘要產生失敗：{str(error)}'})
             self.write_meeting()
 
         def do_PUT(self):
+            path = self.path.split('?', 1)[0]
+            if path.startswith('/api/meetings/') and path.endswith('/summary'):
+                meeting_id = path.removeprefix('/api/meetings/').removesuffix('/summary')
+                origin = self.headers.get('Origin')
+                if origin and origin != 'http://' + self.headers.get('Host', ''):
+                    return self.reply(403, {'error': '不接受跨來源請求。'})
+                meeting = store.get(meeting_id)
+                if not meeting:
+                    return self.reply(404, {'error': '找不到會議。'})
+                if self.headers.get('Content-Type', '').split(';')[0].strip() != 'application/json':
+                    return self.reply(415, {'error': '請使用 application/json。'})
+                try:
+                    length = int(self.headers.get('Content-Length', '0'))
+                    if length < 1 or length > MAX_BODY:
+                        return self.reply(413, {'error': '請求內容過大或為空。'})
+                    data = json.loads(self.rfile.read(length).decode('utf-8'))
+                    if not isinstance(data, dict):
+                        return self.reply(400, {'error': '請提供 JSON 物件。'})
+                    saved = store.save_summary(
+                        meeting_id,
+                        meeting['revision'],
+                        data.get('summary', ''),
+                        data.get('decisions', []),
+                        data.get('action_items', [])
+                    )
+                    return self.reply(200, saved)
+                except (ValueError, KeyError) as error:
+                    return self.reply(400, {'error': str(error)})
             self.write_meeting(update=True)
 
     return Handler

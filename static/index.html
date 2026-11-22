@@ -37,6 +37,56 @@
       <button id="download" type="button">下載目前文字備份</button>
       <p id="metadata" class="hint"></p>
     </form>
+
+    <!-- Module B: AI Summary & Action Items -->
+    <div id="summary-section" class="summary-card" hidden>
+      <hr class="summary-divider">
+      <div class="summary-header">
+        <div>
+          <h2>AI 整理與會議結論</h2>
+          <span id="summary-badge" class="badge"></span>
+        </div>
+        <button id="generate-summary" type="button" class="primary">✨ 產生 AI 摘要與待辦</button>
+      </div>
+
+      <div id="stale-warning" class="alert-box alert-warning" hidden>
+        ⚠️ <strong>會議原文已更新：</strong>目前摘要基於原文版本 v<span id="stale-src-rev"></span>，當前原文已更新至 v<span id="stale-curr-rev"></span>。建議點擊上方「重新產生」同步最新會議結論。
+      </div>
+
+      <div id="summary-content" hidden>
+        <div class="summary-block">
+          <h3>📌 會議摘要</h3>
+          <p id="summary-text" class="summary-text"></p>
+        </div>
+
+        <div class="summary-block">
+          <h3>🎯 重要決策 (Decisions)</h3>
+          <ul id="decisions-list" class="styled-list"></ul>
+        </div>
+
+        <div class="summary-block">
+          <h3>📋 行動項目與分工 (Action Items)</h3>
+          <div class="table-container">
+            <table class="styled-table">
+              <thead>
+                <tr>
+                  <th>負責人</th>
+                  <th>待辦事項</th>
+                  <th>完成期限</th>
+                </tr>
+              </thead>
+              <tbody id="action-items-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <p id="summary-meta" class="hint"></p>
+      </div>
+
+      <div id="no-summary-hint" class="hint">
+        此會議尚未產生 AI 摘要。儲存會議後點擊「產生 AI 摘要與待辦」即可自動整理。
+      </div>
+    </div>
   </section>
 </main>
 </body>

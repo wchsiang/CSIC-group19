@@ -54,6 +54,14 @@ function render(meeting) {
   document.querySelectorAll('#meetings button').forEach(button => {
     button.setAttribute('aria-current', String(button.dataset.id === meeting?.id));
   });
+
+  // Module B: Load or clear summary
+  if (meeting) {
+    $('summary-section').hidden = false;
+    loadSummary(meeting.id);
+  } else {
+    $('summary-section').hidden = true;
+  }
 }
 function mayLeave() {
   return !busy && (!dirty || window.confirm('有尚未儲存的內容，確定要離開這份輸入嗎？'));
@@ -89,7 +97,10 @@ async function loadList() {
 }
 function setBusy(value) {
   busy = value;
-  for (const id of ['title', 'transcript', 'save', 'new', 'refresh', 'import-file', 'restore', 'discard', 'keep-draft', 'save-copy', 'reload-latest', 'download']) $(id).disabled = value;
+  for (const id of ['title', 'transcript', 'save', 'new', 'refresh', 'import-file', 'restore', 'discard', 'keep-draft', 'save-copy', 'reload-latest', 'download', 'generate-summary']) {
+    const el = $(id);
+    if (el) el.disabled = value;
+  }
 }
 $('title').addEventListener('input', markDirty);
 $('transcript').addEventListener('input', markDirty);
@@ -100,10 +111,11 @@ async function saveMeeting(asCopy = false) {
   status('正在儲存…');
   try {
     const updating = current && !asCopy;
+    const title = asCopy && !$('title').value.includes('副本') ? `${$('title').value.trim()} (副本)` : $('title').value;
     const saved = await api(updating ? `/api/meetings/${current.id}` : '/api/meetings', {
       method: updating ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({title: $('title').value, transcript: $('transcript').value, ...(updating ? {revision: current.revision} : {})}),
+      body: JSON.stringify({title, transcript: $('transcript').value, ...(updating ? {revision: current.revision} : {})}),
     });
     render(saved);
     if (!pendingDraft) clearDraft();
@@ -134,8 +146,10 @@ $('reload-latest').onclick = async () => {
 $('download').onclick = () => {
   if (busy) return;
   if (!$('transcript').value.trim()) return status('請先輸入要備份的會議文字。', true);
-  const filename = ($('title').value.trim() || '會議原文').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').slice(0, 80);
-  const url = URL.createObjectURL(new Blob(['\ufeff', $('transcript').value], {type: 'text/plain;charset=utf-8'}));
+  const title = $('title').value.trim() || '會議原文';
+  const filename = title.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').slice(0, 80);
+  const content = `會議標題：${title}\n匯出時間：${new Date().toLocaleString()}\n--------------------\n\n${$('transcript').value}`;
+  const url = URL.createObjectURL(new Blob(['\ufeff', content], {type: 'text/plain;charset=utf-8'}));
   const link = document.createElement('a');
   link.href = url;
   link.download = `${filename}.txt`;
@@ -187,6 +201,103 @@ $('import-file').onchange = async () => {
     status(error instanceof TypeError ? '無法讀取文字檔，請使用 UTF-8 編碼的 .txt。' : error.message, true);
   } finally { $('import-file').value = ''; setBusy(false); }
 };
+
+// Module B: Summary Management
+async function loadSummary(meetingId) {
+  try {
+    const data = await api(`/api/meetings/${meetingId}/summary`);
+    renderSummary(data);
+  } catch (error) {
+    if (error.status === 404) {
+      $('summary-content').hidden = true;
+      $('no-summary-hint').hidden = false;
+      $('stale-warning').hidden = true;
+      $('summary-badge').textContent = '尚未產生';
+      $('summary-badge').className = 'badge';
+      $('generate-summary').textContent = '✨ 產生 AI 摘要與待辦';
+    } else {
+      status(`無法載入 AI 摘要：${error.message}`, true);
+    }
+  }
+}
+
+function renderSummary(data) {
+  $('summary-content').hidden = false;
+  $('no-summary-hint').hidden = true;
+  $('summary-text').textContent = data.summary;
+
+  // Render decisions
+  $('decisions-list').replaceChildren();
+  if (data.decisions && data.decisions.length > 0) {
+    for (const dec of data.decisions) {
+      const li = document.createElement('li');
+      li.textContent = dec;
+      $('decisions-list').append(li);
+    }
+  } else {
+    const li = document.createElement('li');
+    li.textContent = '本次會議無明確共識決策紀錄。';
+    li.className = 'hint';
+    $('decisions-list').append(li);
+  }
+
+  // Render action items
+  $('action-items-body').replaceChildren();
+  if (data.action_items && data.action_items.length > 0) {
+    for (const item of data.action_items) {
+      const tr = document.createElement('tr');
+      const tdAssignee = document.createElement('td');
+      tdAssignee.textContent = item.assignee || '未指派';
+      const tdTask = document.createElement('td');
+      tdTask.textContent = item.task;
+      const tdDue = document.createElement('td');
+      tdDue.textContent = item.due || '未指定期限';
+      tr.append(tdAssignee, tdTask, tdDue);
+      $('action-items-body').append(tr);
+    }
+  } else {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 3;
+    td.textContent = '無待辦事項紀錄。';
+    td.className = 'hint';
+    tr.append(td);
+    $('action-items-body').append(tr);
+  }
+
+  // Staleness checking
+  if (data.is_stale) {
+    $('stale-warning').hidden = false;
+    $('stale-src-rev').textContent = data.source_revision;
+    $('stale-curr-rev').textContent = current?.revision || data.source_revision;
+    $('summary-badge').textContent = '⚠️ 摘要待更新';
+    $('summary-badge').className = 'badge badge-warning';
+  } else {
+    $('stale-warning').hidden = true;
+    $('summary-badge').textContent = `已同步 (v${data.source_revision})`;
+    $('summary-badge').className = 'badge badge-success';
+  }
+
+  $('summary-meta').textContent = `最後整理時間：${new Date(data.updated_at).toLocaleString()}`;
+  $('generate-summary').textContent = '🔄 重新產生摘要';
+}
+
+$('generate-summary').onclick = async () => {
+  if (busy || !current) return;
+  if (dirty && !window.confirm('目前會議內容有尚未儲存的變更。產生摘要將使用已儲存的內容，是否繼續？')) return;
+  setBusy(true);
+  status('正在以 AI 分析並整理會議逐字稿…');
+  try {
+    const summary = await api(`/api/meetings/${current.id}/summary`, { method: 'POST' });
+    renderSummary(summary);
+    status('已完成 AI 會議整理。');
+  } catch (error) {
+    status(error.message, true);
+  } finally {
+    setBusy(false);
+  }
+};
+
 try {
   const raw = localStorage.getItem(DRAFT_KEY);
   if (raw) {
