@@ -53,7 +53,10 @@
           <span id="summary-badge" class="badge"></span>
           <span id="summary-provider" class="provider-tag"></span>
         </div>
-        <button id="generate-summary" type="button" class="primary">✨ 產生 AI 摘要與待辦</button>
+        <div class="summary-header-actions">
+          <button id="edit-summary" type="button" class="secondary" hidden>✏️ 編輯</button>
+          <button id="generate-summary" type="button" class="primary">✨ 產生 AI 摘要與待辦</button>
+        </div>
       </div>
 
       <div id="stale-warning" class="alert-box alert-warning" hidden>
@@ -88,6 +91,42 @@
         </div>
 
         <p id="summary-meta" class="hint"></p>
+      </div>
+
+      <div id="summary-edit-form" class="summary-edit-form" hidden>
+        <div class="summary-block">
+          <label for="edit-summary-text">📌 會議摘要</label>
+          <textarea id="edit-summary-text" rows="4"></textarea>
+        </div>
+
+        <div class="summary-block">
+          <label for="edit-decisions-text">🎯 重要決策 (每行一項)</label>
+          <textarea id="edit-decisions-text" rows="4" placeholder="每行填寫一項決策"></textarea>
+          <p class="hint">每行代表一項決策共識，可換行新增或直接刪除。</p>
+        </div>
+
+        <div class="summary-block">
+          <label>📋 行動項目與分工</label>
+          <div class="table-container">
+            <table class="styled-table edit-table">
+              <thead>
+                <tr>
+                  <th style="width: 25%;">負責人</th>
+                  <th>待辦事項</th>
+                  <th style="width: 25%;">完成期限</th>
+                  <th style="width: 60px; text-align: center;">操作</th>
+                </tr>
+              </thead>
+              <tbody id="edit-action-items-body"></tbody>
+            </table>
+          </div>
+          <button id="add-action-item" type="button" class="secondary" style="margin-top: 10px;">➕ 新增待辦事項</button>
+        </div>
+
+        <div class="actions" style="margin-top: 24px;">
+          <button id="save-summary-edit" type="button" class="primary">儲存修改</button>
+          <button id="cancel-summary-edit" type="button" class="secondary">取消</button>
+        </div>
       </div>
 
       <div id="no-summary-hint" class="hint">

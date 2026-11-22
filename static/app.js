@@ -6,6 +6,7 @@ const LEGACY_DRAFT_KEY = 'csic19.meeting-input.draft.v1';
 const LLM_SETTINGS_KEY = 'csic19.llm.settings.v1';
 let pendingDraft = null;
 let storedDraft = null;
+let currentSummary = null;
 
 function draftKey() { return `csic19.draft.${current?.id ?? 'new'}`; }
 function readDraft(recoverLegacy = false) {
@@ -109,7 +110,10 @@ function render(meeting) {
     $('summary-section').hidden = false;
     loadSummary(meeting.id);
   } else {
+    currentSummary = null;
     $('summary-section').hidden = true;
+    if ($('summary-edit-form')) $('summary-edit-form').hidden = true;
+    if ($('edit-summary')) $('edit-summary').hidden = true;
   }
 }
 function mayLeave() {
@@ -146,7 +150,7 @@ async function loadList() {
 }
 function setBusy(value) {
   busy = value;
-  for (const id of ['title', 'transcript', 'save', 'delete', 'new', 'refresh', 'import-file', 'restore', 'discard', 'keep-draft', 'save-copy', 'reload-latest', 'download', 'generate-summary', 'open-settings']) {
+  for (const id of ['title', 'transcript', 'save', 'delete', 'new', 'refresh', 'import-file', 'restore', 'discard', 'keep-draft', 'save-copy', 'reload-latest', 'download', 'generate-summary', 'open-settings', 'edit-summary', 'add-action-item', 'save-summary-edit', 'cancel-summary-edit']) {
     const el = $(id);
     if (el) el.disabled = value;
   }
@@ -402,7 +406,10 @@ async function loadSummary(meetingId) {
     renderSummary(data);
   } catch (error) {
     if (error.status === 404) {
+      currentSummary = null;
       $('summary-content').hidden = true;
+      if ($('summary-edit-form')) $('summary-edit-form').hidden = true;
+      if ($('edit-summary')) $('edit-summary').hidden = true;
       $('no-summary-hint').hidden = false;
       $('stale-warning').hidden = true;
       $('summary-badge').textContent = '尚未產生';
@@ -416,7 +423,10 @@ async function loadSummary(meetingId) {
 }
 
 function renderSummary(data) {
+  currentSummary = data;
   $('summary-content').hidden = false;
+  if ($('summary-edit-form')) $('summary-edit-form').hidden = true;
+  if ($('edit-summary')) $('edit-summary').hidden = false;
   $('no-summary-hint').hidden = true;
   $('summary-text').textContent = data.summary;
 
@@ -497,6 +507,121 @@ $('generate-summary').onclick = async () => {
     });
     renderSummary(summary);
     status(`已完成 AI 會議整理（${summary.provider || providerLabel}）。`);
+  } catch (error) {
+    status(error.message, true);
+  } finally {
+    setBusy(false);
+  }
+};
+
+function createActionItemRow(item = { assignee: '', task: '', due: '' }) {
+  const tr = document.createElement('tr');
+
+  const tdAssignee = document.createElement('td');
+  const inputAssignee = document.createElement('input');
+  inputAssignee.type = 'text';
+  inputAssignee.className = 'edit-assignee';
+  inputAssignee.placeholder = '例如：小明';
+  inputAssignee.value = (item.assignee === '未指派' ? '' : (item.assignee || ''));
+  tdAssignee.append(inputAssignee);
+
+  const tdTask = document.createElement('td');
+  const inputTask = document.createElement('input');
+  inputTask.type = 'text';
+  inputTask.className = 'edit-task';
+  inputTask.placeholder = '待辦工作項目';
+  inputTask.value = item.task || '';
+  tdTask.append(inputTask);
+
+  const tdDue = document.createElement('td');
+  const inputDue = document.createElement('input');
+  inputDue.type = 'text';
+  inputDue.className = 'edit-due';
+  inputDue.placeholder = '完成期限（無則留空）';
+  inputDue.value = item.due || '';
+  tdDue.append(inputDue);
+
+  const tdAction = document.createElement('td');
+  tdAction.style.textAlign = 'center';
+  const btnDel = document.createElement('button');
+  btnDel.type = 'button';
+  btnDel.className = 'btn-del-row';
+  btnDel.textContent = '🗑️';
+  btnDel.title = '刪除此項';
+  btnDel.onclick = () => tr.remove();
+  tdAction.append(btnDel);
+
+  tr.append(tdAssignee, tdTask, tdDue, tdAction);
+  return tr;
+}
+
+$('edit-summary').onclick = () => {
+  if (busy || !currentSummary) return;
+  $('edit-summary-text').value = currentSummary.summary || '';
+  $('edit-decisions-text').value = (currentSummary.decisions || []).join('\n');
+
+  $('edit-action-items-body').replaceChildren();
+  if (currentSummary.action_items && currentSummary.action_items.length > 0) {
+    for (const item of currentSummary.action_items) {
+      $('edit-action-items-body').append(createActionItemRow(item));
+    }
+  } else {
+    $('edit-action-items-body').append(createActionItemRow());
+  }
+
+  $('summary-content').hidden = true;
+  $('summary-edit-form').hidden = false;
+  $('edit-summary-text').focus();
+};
+
+$('add-action-item').onclick = () => {
+  $('edit-action-items-body').append(createActionItemRow());
+};
+
+$('cancel-summary-edit').onclick = () => {
+  $('summary-edit-form').hidden = true;
+  $('summary-content').hidden = false;
+};
+
+$('save-summary-edit').onclick = async () => {
+  if (busy || !current) return;
+  const summary = $('edit-summary-text').value.trim();
+  if (!summary) return status('會議摘要內容不能為空。', true);
+
+  const decisions = $('edit-decisions-text').value
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  const action_items = [];
+  const rows = $('edit-action-items-body').querySelectorAll('tr');
+  for (const tr of rows) {
+    const assigneeInput = tr.querySelector('.edit-assignee');
+    const taskInput = tr.querySelector('.edit-task');
+    const dueInput = tr.querySelector('.edit-due');
+    if (!taskInput) continue;
+    const task = taskInput.value.trim();
+    if (!task) continue;
+    const assignee = assigneeInput ? assigneeInput.value.trim() || '未指派' : '未指派';
+    const due = dueInput && dueInput.value.trim() ? dueInput.value.trim() : null;
+    action_items.push({ assignee, task, due });
+  }
+
+  setBusy(true);
+  status('正在儲存人工微調的摘要與待辦…');
+  try {
+    const updated = await api(`/api/meetings/${current.id}/summary`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        summary,
+        decisions,
+        action_items,
+        provider: '人工微調'
+      })
+    });
+    renderSummary(updated);
+    status('已成功儲存人工微調的會議摘要與待辦事項。');
   } catch (error) {
     status(error.message, true);
   } finally {

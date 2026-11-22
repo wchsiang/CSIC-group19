@@ -51,3 +51,14 @@ Why: volunteered.
   3. **透明錯誤反饋**：去除靜默忽略錯誤的寫法；若填入之金鑰失效或連線異常，直接返回具體錯誤訊息，並提供連線測試按鈕（`POST /api/test-llm`）。
   4. **相容性與離線保障**：若未填入金鑰，系統平滑支援「本機離線規則抽取」，CI 測試中亦透過 Mock 模擬模型回傳，確保離線與自動化測試 100% 穩定。
 - 證據：`summarizer.py`、`app.py`、`static/index.html`、`static/app.js`、`static/style.css`、`tests/test_module_b.py`。
+
+## 2026-11-22 — 前端視覺化人工微調編輯模式（摘要、決策與待辦表格）
+
+狀態：已完成實作並通過單元測試。
+
+- 問題：AI 自動整理生成的內容偶有未盡事宜或需要微調，先前僅後端提供 PUT API，一般使用者無法在網頁介面上直接調整內容。
+- 選擇：
+  1. 在「AI 整理與會議結論」區塊新增「✏️ 編輯」按鈕，點擊後於原位切換為編輯模式表單。
+  2. 摘要以多行文字框（Textarea）編輯，決策支援換行直接增刪改，待辦表格支援單列即時修改、增行與刪除列。
+  3. 儲存時前端自動發送 `PUT /api/meetings/{id}/summary`，將來源標籤更新為 `✨ 由 人工微調 整理`，不影響原文版本與 revision 樂觀鎖衝突機制。
+- 證據：`static/index.html`、`static/app.js`、`static/style.css`、`tests/test_module_b.py`。
