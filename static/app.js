@@ -221,7 +221,7 @@ const PROVIDER_INFO = {
     link: 'https://aistudio.google.com/apikey',
     linkText: '👉 免費取得 Gemini 金鑰',
     keyPlaceholder: '貼上你的 Gemini API Key (AIza...)',
-    modelPlaceholder: '例如：gemini-1.5-flash',
+    modelPlaceholder: '例如：gemini-3.5-flash',
   },
   claude: {
     link: 'https://console.anthropic.com/settings/keys',

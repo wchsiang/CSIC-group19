@@ -58,7 +58,7 @@ def _parse_json_from_llm(raw: str) -> dict:
 
 
 def _call_gemini(transcript: str, title: str, api_key: str, model: str = None) -> dict:
-    model_name = model or "gemini-1.5-flash"
+    model_name = model or "gemini-3.5-flash"
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
     prompt = PROMPT_TEMPLATE.format(title=title, transcript=transcript)
     req_body = {
@@ -202,7 +202,7 @@ def analyze_transcript(transcript: str, title: str = "", provider: str = None, a
         if chosen == "gemini":
             res = _call_gemini(transcript, title, api_key.strip(), model)
             res["provider"] = "Google Gemini"
-            res["model"] = model or "gemini-1.5-flash"
+            res["model"] = model or "gemini-3.5-flash"
             return res
         elif chosen == "claude":
             res = _call_claude(transcript, title, api_key.strip(), model)
@@ -228,7 +228,7 @@ def analyze_transcript(transcript: str, title: str = "", provider: str = None, a
         try:
             res = _call_gemini(transcript, title, env_gemini.strip(), model)
             res["provider"] = "Google Gemini (環境變數)"
-            res["model"] = model or "gemini-1.5-flash"
+            res["model"] = model or "gemini-3.5-flash"
             return res
         except Exception:
             pass
