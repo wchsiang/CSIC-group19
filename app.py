@@ -73,6 +73,18 @@ class Store:
             row = db.execute('SELECT * FROM meetings WHERE id=?', (meeting_id,)).fetchone()
             return dict(row)
 
+    def delete(self, meeting_id, data):
+        revision = data.get('revision') if isinstance(data, dict) else None
+        if type(revision) is not int or revision < 1:
+            raise ValueError('刪除會議時需提供正確的 revision。')
+        with self.connect() as db:
+            result = db.execute('DELETE FROM meetings WHERE id=? AND revision=?', (meeting_id, revision))
+            if result.rowcount:
+                return
+            if db.execute('SELECT 1 FROM meetings WHERE id=?', (meeting_id,)).fetchone():
+                raise Conflict('此會議已被更新。請載入最新版後再確認是否刪除。')
+            raise KeyError(meeting_id)
+
 
 class Conflict(Exception):
     pass
@@ -109,7 +121,8 @@ def handler_for(store):
             self.end_headers()
             self.wfile.write(body)
 
-        def write_meeting(self, update=False):
+        def write_meeting(self):
+            update = self.command != 'POST'
             expected = '/api/meetings/' if update else '/api/meetings'
             if (update and not self.path.startswith(expected)) or (not update and self.path != expected):
                 return self.reply(404, {'error': '找不到 API。'})
@@ -127,6 +140,9 @@ def handler_for(store):
                 meeting_id = self.path.removeprefix(expected) if update else None
                 if update and not meeting_id:
                     return self.reply(404, {'error': '找不到會議。'})
+                if self.command == 'DELETE':
+                    store.delete(meeting_id, data)
+                    return self.reply(200, {'id': meeting_id})
                 meeting = store.save(data, meeting_id)
                 return self.reply(200 if update else 201, meeting)
             except Conflict as error:
@@ -140,7 +156,10 @@ def handler_for(store):
             self.write_meeting()
 
         def do_PUT(self):
-            self.write_meeting(update=True)
+            self.write_meeting()
+
+        def do_DELETE(self):
+            self.write_meeting()
 
     return Handler
 

@@ -5,9 +5,8 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
 
-function browser(draft) {
+function browser(draft, storage = new Map(draft ? [['csic19.meeting-input.draft.v1', JSON.stringify(draft)]] : [])) {
   const elements = new Map();
-  const storage = new Map(draft ? [['csic19.meeting-input.draft.v1', JSON.stringify(draft)]] : []);
   const element = id => {
     if (!elements.has(id)) elements.set(id, {
       value: '', checked: false, hidden: true, dataset: {}, textContent: '', files: [],
@@ -77,6 +76,7 @@ test('restore retains original revision for conflict detection', () => {
   assert.equal(e('title').value, '未完成');
   assert.equal(e('transcript').value, '內容');
   assert.equal(JSON.parse([...storage.values()][0]).current.revision, 3);
+  assert.deepEqual([...storage.keys()], ['csic19.draft.meeting-id']);
   assert.equal(e('keep-draft').checked, true);
 });
 test('storage failure keeps form input available', () => {
@@ -105,6 +105,7 @@ test('409 exposes recovery without discarding local text or stale revision', asy
 });
 test('save copy posts a new record without revision and switches to it', async () => {
   const {element: e, context} = existingMeeting();
+  e('title').value = '字'.repeat(120);
   let payload;
   context.fetch = async (url, options) => {
     if (!options) return {ok: true, json: async () => ({meetings: []})};
@@ -115,9 +116,57 @@ test('save copy posts a new record without revision and switches to it', async (
   };
   await e('save-copy').onclick();
   assert.equal(payload.transcript, '我的未儲存文字');
+  assert.equal(payload.title, '字'.repeat(113) + ' (衝突備份)');
   assert.equal('revision' in payload, false);
   assert.equal(e('conflict-panel').hidden, true);
   assert.match(e('status').textContent, /另存/);
+});
+test('shared storage isolates two meetings and a new draft', () => {
+  const first = browser();
+  const second = browser(null, first.storage);
+  const edit = (tab, id, title) => {
+    vm.runInContext(id ? `render({id: '${id}', revision: 1})` : 'render(null)', tab.context);
+    tab.element('keep-draft').checked = true;
+    tab.element('title').value = title;
+    tab.element('title').input();
+  };
+  edit(first, 'one', '第一場');
+  edit(second, 'two', '第二場');
+  edit(second, null, '新會議');
+  vm.runInContext("render({id: 'one', revision: 2})", second.context);
+  second.element('restore').onclick();
+  assert.equal(second.element('title').value, '第一場');
+  assert.equal(vm.runInContext('current.revision', second.context), 1);
+  second.element('discard').onclick();
+  assert.deepEqual([...first.storage.keys()], ['csic19.draft.two', 'csic19.draft.new']);
+});
+test('delete confirms, sends the visible revision and preserves input on conflict', async () => {
+  const {element: e, context, storage} = existingMeeting();
+  let requests = 0;
+  let conflict = true;
+  context.fetch = async (url, options) => {
+    if (!options) return {ok: true, json: async () => ({meetings: []})};
+    requests++;
+    assert.equal(url, '/api/meetings/original');
+    assert.equal(options.method, 'DELETE');
+    assert.deepEqual(JSON.parse(options.body), {revision: 1});
+    return conflict
+      ? {ok: false, status: 409, json: async () => ({error: '版本衝突'})}
+      : {ok: true, json: async () => ({id: 'original'})};
+  };
+  context.window.confirm = () => false;
+  await e('delete').onclick();
+  assert.equal(requests, 0);
+  context.window.confirm = () => true;
+  await e('delete').onclick();
+  assert.equal(e('transcript').value, '我的未儲存文字');
+  assert.equal(storage.size, 1);
+  conflict = false;
+  await e('delete').onclick();
+  assert.equal(requests, 2);
+  assert.equal(e('delete').hidden, true);
+  assert.equal(e('transcript').value, '');
+  assert.equal(storage.size, 0);
 });
 test('cancel or failed latest reload preserves local input', async () => {
   const {element: e, context} = existingMeeting();

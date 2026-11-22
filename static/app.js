@@ -2,12 +2,49 @@ const $ = (id) => document.getElementById(id);
 let current = null;
 let dirty = false;
 let busy = false;
-const DRAFT_KEY = 'csic19.meeting-input.draft.v1';
+const LEGACY_DRAFT_KEY = 'csic19.meeting-input.draft.v1';
 let pendingDraft = null;
+let storedDraft = null;
 
+function draftKey() { return `csic19.draft.${current?.id ?? 'new'}`; }
+function readDraft(recoverLegacy = false) {
+  pendingDraft = null;
+  storedDraft = null;
+  $('draft-banner').hidden = true;
+  $('keep-draft').checked = false;
+  try {
+    const key = draftKey();
+    let source = key;
+    let raw = localStorage.getItem(key);
+    if (raw === null) {
+      source = LEGACY_DRAFT_KEY;
+      raw = localStorage.getItem(source);
+    }
+    if (raw === null) return;
+    const draft = JSON.parse(raw);
+    if (!draft || typeof draft.title !== 'string' || draft.title.length > 120 ||
+        typeof draft.transcript !== 'string' || draft.transcript.length > 100000 ||
+        (draft.current !== null && (!draft.current || typeof draft.current.id !== 'string' ||
+          !Number.isInteger(draft.current.revision) || draft.current.revision < 1))) {
+      throw new Error('invalid draft');
+    }
+    if (draft.current?.id !== current?.id) {
+      if (recoverLegacy && source === LEGACY_DRAFT_KEY && draft.current) render(draft.current);
+      return;
+    }
+    storedDraft = {key: source, raw};
+    pendingDraft = draft;
+    $('draft-banner').hidden = false;
+  } catch { status('瀏覽器草稿無法讀取；你仍可以正常建立與儲存會議。', true); }
+}
 function clearDraft() {
-  try { localStorage.removeItem(DRAFT_KEY); }
+  try {
+    if (storedDraft && localStorage.getItem(storedDraft.key) === storedDraft.raw) {
+      localStorage.removeItem(storedDraft.key);
+    }
+  }
   catch { status('無法清除瀏覽器草稿，請檢查瀏覽器儲存設定。', true); return false; }
+  storedDraft = null;
   pendingDraft = null;
   $('draft-banner').hidden = true;
   return true;
@@ -17,10 +54,21 @@ function saveDraft() {
   // Do not replace an older recoverable draft without an explicit choice.
   if (pendingDraft) return;
   try {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({
+    const key = draftKey();
+    const previous = storedDraft?.key === key ? storedDraft.raw : null;
+    if (localStorage.getItem(key) !== previous) {
+      status('另一個分頁已變更這份草稿。目前輸入仍在表單中，可下載或儲存會議。', true);
+      return;
+    }
+    const raw = JSON.stringify({
       title: $('title').value, transcript: $('transcript').value,
-      current, savedAt: new Date().toISOString(),
-    }));
+      current: current ? {id: current.id, revision: current.revision} : null,
+    });
+    localStorage.setItem(key, raw);
+    if (storedDraft?.key === LEGACY_DRAFT_KEY && localStorage.getItem(LEGACY_DRAFT_KEY) === storedDraft.raw) {
+      localStorage.removeItem(LEGACY_DRAFT_KEY);
+    }
+    storedDraft = {key, raw};
   } catch { status('草稿無法保存在瀏覽器，請手動儲存會議。', true); }
 }
 function markDirty() { dirty = true; count(); status('尚未儲存'); saveDraft(); }
@@ -49,11 +97,13 @@ function render(meeting) {
   $('transcript').value = meeting?.transcript || '';
   $('metadata').textContent = meeting ? `最後儲存：${new Date(meeting.updated_at).toLocaleString()} · 版本 ${meeting.revision}` : '';
   $('save').textContent = meeting ? '儲存變更' : '儲存會議';
+  $('delete').hidden = !meeting;
   dirty = false;
   count();
   document.querySelectorAll('#meetings button').forEach(button => {
     button.setAttribute('aria-current', String(button.dataset.id === meeting?.id));
   });
+  readDraft();
 }
 function mayLeave() {
   return !busy && (!dirty || window.confirm('有尚未儲存的內容，確定要離開這份輸入嗎？'));
@@ -89,7 +139,7 @@ async function loadList() {
 }
 function setBusy(value) {
   busy = value;
-  for (const id of ['title', 'transcript', 'save', 'new', 'refresh', 'import-file', 'restore', 'discard', 'keep-draft', 'save-copy', 'reload-latest', 'download']) $(id).disabled = value;
+  for (const id of ['title', 'transcript', 'save', 'delete', 'new', 'refresh', 'import-file', 'restore', 'discard', 'keep-draft', 'save-copy', 'reload-latest', 'download']) $(id).disabled = value;
 }
 $('title').addEventListener('input', markDirty);
 $('transcript').addEventListener('input', markDirty);
@@ -100,17 +150,23 @@ async function saveMeeting(asCopy = false) {
   status('正在儲存…');
   try {
     const updating = current && !asCopy;
+    const suffix = ' (衝突備份)';
+    const inputTitle = $('title').value.trim();
+    const title = asCopy ? Array.from(inputTitle).slice(0, 120 - suffix.length).join('').trimEnd() + suffix : inputTitle;
     const saved = await api(updating ? `/api/meetings/${current.id}` : '/api/meetings', {
       method: updating ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({title: $('title').value, transcript: $('transcript').value, ...(updating ? {revision: current.revision} : {})}),
+      body: JSON.stringify({title, transcript: $('transcript').value, ...(updating ? {revision: current.revision} : {})}),
     });
+    const cleared = pendingDraft || clearDraft();
     render(saved);
-    if (!pendingDraft) clearDraft();
-    status(asCopy ? '已另存為新會議，原會議未被修改。' : '已儲存。');
+    if (cleared) status(asCopy ? '已另存為新會議，原會議未被修改。' : '已儲存。');
     await loadList();
   } catch (error) {
-    if (error.status === 409) $('conflict-panel').hidden = false;
+    if (current && !asCopy && (error.status === 409 || error.status === 404)) {
+      $('conflict-panel').hidden = false;
+      $('reload-latest').hidden = error.status === 404;
+    }
     status(error.message, true);
   }
   finally { setBusy(false); }
@@ -120,14 +176,34 @@ $('form').addEventListener('submit', async (event) => {
   await saveMeeting();
 });
 $('save-copy').onclick = () => saveMeeting(true);
+$('delete').onclick = async () => {
+  if (busy || !current) return;
+  if (!window.confirm(`確定永久刪除「${current.title}」？目前未儲存的輸入與此會議的瀏覽器草稿也會清除。`)) return;
+  setBusy(true);
+  try {
+    await api(`/api/meetings/${current.id}`, {
+      method: 'DELETE',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({revision: current.revision}),
+    });
+    const cleared = clearDraft();
+    render(null);
+    if (cleared) status('已刪除會議。');
+    await loadList();
+    $('title').focus();
+  } catch (error) {
+    status(error.message, true);
+    if (error.status === 404 || error.status === 409) await loadList();
+  } finally { setBusy(false); }
+};
 $('reload-latest').onclick = async () => {
   if (busy || !current || !window.confirm('確定捨棄目前輸入並載入最新版？建議先下載文字備份。')) return;
   setBusy(true);
   try {
     const latest = await api(`/api/meetings/${current.id}`);
+    const cleared = pendingDraft || clearDraft();
     render(latest);
-    if (!pendingDraft) clearDraft();
-    status('已載入最新版。');
+    if (cleared) status('已載入最新版。');
   } catch (error) { status(error.message, true); }
   finally { setBusy(false); }
 };
@@ -158,7 +234,7 @@ $('discard').onclick = () => {
 $('restore').onclick = () => {
   if (!pendingDraft || !mayLeave()) return;
   const draft = pendingDraft;
-  render(draft.current);
+  if (current) current = {...current, revision: draft.current.revision};
   $('title').value = draft.title;
   $('transcript').value = draft.transcript;
   pendingDraft = null;
@@ -187,17 +263,5 @@ $('import-file').onchange = async () => {
     status(error instanceof TypeError ? '無法讀取文字檔，請使用 UTF-8 編碼的 .txt。' : error.message, true);
   } finally { $('import-file').value = ''; setBusy(false); }
 };
-try {
-  const raw = localStorage.getItem(DRAFT_KEY);
-  if (raw) {
-    const draft = JSON.parse(raw);
-    if (typeof draft.title !== 'string' || draft.title.length > 120 ||
-        typeof draft.transcript !== 'string' || draft.transcript.length > 100000 ||
-        (draft.current !== null && (!draft.current || typeof draft.current.id !== 'string' || !Number.isInteger(draft.current.revision)))) {
-      throw new Error('invalid draft');
-    }
-    pendingDraft = draft;
-    $('draft-banner').hidden = false;
-  }
-} catch { status('瀏覽器草稿無法讀取；你仍可以正常建立與儲存會議。', true); }
+readDraft(true);
 loadList();

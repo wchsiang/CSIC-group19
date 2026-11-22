@@ -3,6 +3,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -71,6 +72,35 @@ class MeetingAPI(unittest.TestCase):
             with self.subTest(data_type=type(data).__name__):
                 self.assertEqual(self.request('/api/meetings', 'POST', data)[0], 400)
         self.assertEqual(self.request('/api/meetings')[1]['meetings'], [])
+
+    def test_delete_requires_latest_revision(self):
+        meeting = self.create()
+        path = '/api/meetings/' + meeting['id']
+        self.assertEqual(self.request(path, 'DELETE', {'revision': True})[0], 400)
+        self.assertEqual(self.request(path, 'DELETE', {'revision': 1}, Origin='https://example.com')[0], 403)
+        self.assertEqual(self.request(path, 'PUT', {**meeting, 'transcript': '最新內容'})[0], 200)
+        self.assertEqual(self.request(path, 'DELETE', {'revision': 1})[0], 409)
+        self.assertEqual(self.request(path)[1]['transcript'], '最新內容')
+        self.assertEqual(self.request(path, 'DELETE', {'revision': 2}), (200, {'id': meeting['id']}))
+        self.assertEqual(self.request(path)[0], 404)
+        self.assertEqual(self.request(path, 'DELETE', {'revision': 2})[0], 404)
+        self.assertEqual(self.request('/api/meetings')[1]['meetings'], [])
+
+    def test_parallel_update_and_delete_cannot_both_win(self):
+        meeting = self.create()
+        path = '/api/meetings/' + meeting['id']
+        start = threading.Barrier(2)
+
+        def write(method, data):
+            start.wait(timeout=5)
+            return self.request(path, method, data)[0]
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            update = pool.submit(write, 'PUT', {**meeting, 'transcript': '並行更新'})
+            delete = pool.submit(write, 'DELETE', {'revision': meeting['revision']})
+            statuses = update.result(), delete.result()
+        self.assertIn(statuses, [(200, 409), (404, 200)])
+        self.assertEqual(self.request(path)[0], 200 if statuses[0] == 200 else 404)
 
     def test_missing_record_and_cross_origin(self):
         self.assertEqual(self.request('/api/meetings/missing')[0], 404)
