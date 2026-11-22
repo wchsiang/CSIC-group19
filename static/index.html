@@ -6,7 +6,13 @@
 <link rel="stylesheet" href="/style.css">
 <script src="/app.js" defer></script>
 <body>
-<header><strong>會議筆記</strong><span>CSIC · GROUP 19</span></header>
+<header>
+  <div class="header-brand">
+    <strong>會議筆記</strong>
+    <span>CSIC · GROUP 19</span>
+  </div>
+  <button id="open-settings" type="button" class="settings-btn" title="設定 AI 模型與 API Key">⚙️ AI 模型設定</button>
+</header>
 <main>
   <aside><div class="aside-heading"><h2>已儲存的會議</h2><button id="refresh" type="button">重新整理</button></div>
     <button id="new" class="primary" type="button">建立新會議</button>
@@ -45,6 +51,7 @@
         <div>
           <h2>AI 整理與會議結論</h2>
           <span id="summary-badge" class="badge"></span>
+          <span id="summary-provider" class="provider-tag"></span>
         </div>
         <button id="generate-summary" type="button" class="primary">✨ 產生 AI 摘要與待辦</button>
       </div>
@@ -89,5 +96,48 @@
     </div>
   </section>
 </main>
+
+<!-- Settings Modal for LLM Provider & API Key -->
+<dialog id="settings-dialog" class="settings-dialog">
+  <div class="dialog-content">
+    <div class="dialog-header">
+      <h2>⚙️ AI 模型與 API 設定</h2>
+      <button id="close-settings" type="button" class="close-btn" aria-label="關閉">&times;</button>
+    </div>
+    <form id="settings-form" method="dialog">
+      <p class="dialog-intro">選擇你想使用的 AI 模型服務。填入 API Key 後將由真正的 LLM 分析會議內容並萃取結論與待辦。</p>
+      
+      <label for="provider-select">模型提供商 (Provider)</label>
+      <select id="provider-select" class="form-select">
+        <option value="gemini">Google Gemini（推薦 · 免費額度高）</option>
+        <option value="claude">Anthropic Claude（Claude 3.5 Haiku · 推理能力優異）</option>
+        <option value="openai">OpenAI（GPT-4o-mini · 速度快）</option>
+        <option value="heuristic">本機離線規則（免金鑰備用）</option>
+      </select>
+
+      <div id="key-container">
+        <div class="label-with-link">
+          <label for="api-key-input">API 金鑰 (API Key)</label>
+          <a id="get-key-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">👉 免費取得 Gemini 金鑰</a>
+        </div>
+        <div class="input-with-action">
+          <input id="api-key-input" type="password" placeholder="貼上你的 API Key (AIza...)" autocomplete="off">
+          <button id="toggle-key-visibility" type="button" class="icon-btn" title="顯示/隱藏金鑰">👁️</button>
+        </div>
+        <p class="hint">🔒 金鑰僅儲存於本機瀏覽器（localStorage），只在分析時安全送出，絕不寫入伺服器資料庫。</p>
+
+        <label for="model-input">指定模型名稱（選填，留空使用預設）</label>
+        <input id="model-input" type="text" placeholder="例如：gemini-1.5-flash">
+      </div>
+
+      <div class="dialog-actions">
+        <button id="test-key-btn" type="button" class="secondary">⚡ 測試連線</button>
+        <button id="save-settings-btn" type="button" class="primary">儲存設定</button>
+        <button id="clear-settings-btn" type="button" class="secondary">清除金鑰</button>
+      </div>
+      <p id="test-status" role="status" class="hint"></p>
+    </form>
+  </div>
+</dialog>
 </body>
 </html>

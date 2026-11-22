@@ -3,6 +3,7 @@ let current = null;
 let dirty = false;
 let busy = false;
 const DRAFT_KEY = 'csic19.meeting-input.draft.v1';
+const LLM_SETTINGS_KEY = 'csic19.llm.settings.v1';
 let pendingDraft = null;
 
 function clearDraft() {
@@ -14,7 +15,6 @@ function clearDraft() {
 }
 function saveDraft() {
   if (!$('keep-draft').checked || !dirty) return;
-  // Do not replace an older recoverable draft without an explicit choice.
   if (pendingDraft) return;
   try {
     localStorage.setItem(DRAFT_KEY, JSON.stringify({
@@ -55,7 +55,6 @@ function render(meeting) {
     button.setAttribute('aria-current', String(button.dataset.id === meeting?.id));
   });
 
-  // Module B: Load or clear summary
   if (meeting) {
     $('summary-section').hidden = false;
     loadSummary(meeting.id);
@@ -97,7 +96,7 @@ async function loadList() {
 }
 function setBusy(value) {
   busy = value;
-  for (const id of ['title', 'transcript', 'save', 'new', 'refresh', 'import-file', 'restore', 'discard', 'keep-draft', 'save-copy', 'reload-latest', 'download', 'generate-summary']) {
+  for (const id of ['title', 'transcript', 'save', 'new', 'refresh', 'import-file', 'restore', 'discard', 'keep-draft', 'save-copy', 'reload-latest', 'download', 'generate-summary', 'open-settings']) {
     const el = $(id);
     if (el) el.disabled = value;
   }
@@ -202,7 +201,128 @@ $('import-file').onchange = async () => {
   } finally { $('import-file').value = ''; setBusy(false); }
 };
 
-// Module B: Summary Management
+// Module B: LLM Settings & Summary Management
+function getLLMSettings() {
+  try {
+    const raw = localStorage.getItem(LLM_SETTINGS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return { provider: 'gemini', api_key: '', model: '' };
+}
+function saveLLMSettings(settings) {
+  try {
+    localStorage.setItem(LLM_SETTINGS_KEY, JSON.stringify(settings));
+    return true;
+  } catch { return false; }
+}
+
+const PROVIDER_INFO = {
+  gemini: {
+    link: 'https://aistudio.google.com/apikey',
+    linkText: '👉 免費取得 Gemini 金鑰',
+    keyPlaceholder: '貼上你的 Gemini API Key (AIza...)',
+    modelPlaceholder: '例如：gemini-1.5-flash',
+  },
+  claude: {
+    link: 'https://console.anthropic.com/settings/keys',
+    linkText: '👉 取得 Claude 金鑰 (Anthropic Console)',
+    keyPlaceholder: '貼上你的 Claude API Key (sk-ant-...)',
+    modelPlaceholder: '例如：claude-3-5-haiku-20241022',
+  },
+  openai: {
+    link: 'https://platform.openai.com/api-keys',
+    linkText: '👉 取得 OpenAI 金鑰 (OpenAI Platform)',
+    keyPlaceholder: '貼上你的 OpenAI API Key (sk-...)',
+    modelPlaceholder: '例如：gpt-4o-mini',
+  },
+  heuristic: {
+    link: '#',
+    linkText: '（離線規則抽取無需金鑰）',
+    keyPlaceholder: '無需輸入金鑰',
+    modelPlaceholder: '本機規則引擎',
+  }
+};
+
+function updateProviderUI(provider) {
+  const info = PROVIDER_INFO[provider] || PROVIDER_INFO.gemini;
+  $('get-key-link').href = info.link;
+  $('get-key-link').textContent = info.linkText;
+  $('api-key-input').placeholder = info.keyPlaceholder;
+  $('model-input').placeholder = info.modelPlaceholder;
+  $('key-container').hidden = (provider === 'heuristic');
+}
+
+$('open-settings').onclick = () => {
+  const settings = getLLMSettings();
+  $('provider-select').value = settings.provider || 'gemini';
+  $('api-key-input').value = settings.api_key || '';
+  $('model-input').value = settings.model || '';
+  updateProviderUI(settings.provider || 'gemini');
+  $('test-status').textContent = '';
+  $('settings-dialog').showModal();
+};
+
+$('close-settings').onclick = () => $('settings-dialog').close();
+
+$('provider-select').onchange = () => {
+  updateProviderUI($('provider-select').value);
+  $('test-status').textContent = '';
+};
+
+$('toggle-key-visibility').onclick = () => {
+  const input = $('api-key-input');
+  input.type = input.type === 'password' ? 'text' : 'password';
+};
+
+$('test-key-btn').onclick = async () => {
+  const provider = $('provider-select').value;
+  const api_key = $('api-key-input').value.trim();
+  const model = $('model-input').value.trim();
+  if (provider === 'heuristic') {
+    $('test-status').textContent = '✅ 本機離線規則抽取隨時可用，無需連線。';
+    $('test-status').dataset.error = 'false';
+    return;
+  }
+  if (!api_key) {
+    $('test-status').textContent = '請先填入 API Key 再測試連線。';
+    $('test-status').dataset.error = 'true';
+    return;
+  }
+  $('test-status').textContent = '正在測試連線中…';
+  $('test-status').dataset.error = 'false';
+  try {
+    const res = await api('/api/test-llm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, api_key, model })
+    });
+    $('test-status').textContent = `✅ ${res.message}`;
+    $('test-status').dataset.error = 'false';
+  } catch (err) {
+    $('test-status').textContent = `❌ ${err.message}`;
+    $('test-status').dataset.error = 'true';
+  }
+};
+
+$('save-settings-btn').onclick = (e) => {
+  e.preventDefault();
+  const provider = $('provider-select').value;
+  const api_key = $('api-key-input').value.trim();
+  const model = $('model-input').value.trim();
+  saveLLMSettings({ provider, api_key, model });
+  $('settings-dialog').close();
+  status(`已儲存 AI 模型設定（${provider}）。`);
+};
+
+$('clear-settings-btn').onclick = () => {
+  if (window.confirm('確定清除已儲存的 API Key？')) {
+    saveLLMSettings({ provider: 'gemini', api_key: '', model: '' });
+    $('api-key-input').value = '';
+    $('model-input').value = '';
+    $('test-status').textContent = '已清除金鑰。';
+  }
+};
+
 async function loadSummary(meetingId) {
   try {
     const data = await api(`/api/meetings/${meetingId}/summary`);
@@ -214,6 +334,7 @@ async function loadSummary(meetingId) {
       $('stale-warning').hidden = true;
       $('summary-badge').textContent = '尚未產生';
       $('summary-badge').className = 'badge';
+      $('summary-provider').textContent = '';
       $('generate-summary').textContent = '✨ 產生 AI 摘要與待辦';
     } else {
       status(`無法載入 AI 摘要：${error.message}`, true);
@@ -226,7 +347,6 @@ function renderSummary(data) {
   $('no-summary-hint').hidden = true;
   $('summary-text').textContent = data.summary;
 
-  // Render decisions
   $('decisions-list').replaceChildren();
   if (data.decisions && data.decisions.length > 0) {
     for (const dec of data.decisions) {
@@ -241,7 +361,6 @@ function renderSummary(data) {
     $('decisions-list').append(li);
   }
 
-  // Render action items
   $('action-items-body').replaceChildren();
   if (data.action_items && data.action_items.length > 0) {
     for (const item of data.action_items) {
@@ -265,7 +384,6 @@ function renderSummary(data) {
     $('action-items-body').append(tr);
   }
 
-  // Staleness checking
   if (data.is_stale) {
     $('stale-warning').hidden = false;
     $('stale-src-rev').textContent = data.source_revision;
@@ -278,6 +396,7 @@ function renderSummary(data) {
     $('summary-badge').className = 'badge badge-success';
   }
 
+  $('summary-provider').textContent = data.provider ? `✨ 由 ${data.provider} 整理` : '';
   $('summary-meta').textContent = `最後整理時間：${new Date(data.updated_at).toLocaleString()}`;
   $('generate-summary').textContent = '🔄 重新產生摘要';
 }
@@ -286,11 +405,25 @@ $('generate-summary').onclick = async () => {
   if (busy || !current) return;
   if (dirty && !window.confirm('目前會議內容有尚未儲存的變更。產生摘要將使用已儲存的內容，是否繼續？')) return;
   setBusy(true);
-  status('正在以 AI 分析並整理會議逐字稿…');
+
+  const settings = getLLMSettings();
+  const providerLabel = settings.provider === 'claude' ? 'Claude' : (settings.provider === 'gemini' ? 'Gemini' : (settings.provider === 'openai' ? 'OpenAI' : '本機離線規則'));
+  status(`正在透過 ${providerLabel} 分析並整理會議逐字稿…`);
+
   try {
-    const summary = await api(`/api/meetings/${current.id}/summary`, { method: 'POST' });
+    const payload = (settings.provider !== 'heuristic' && settings.api_key) ? {
+      provider: settings.provider,
+      api_key: settings.api_key,
+      model: settings.model || undefined
+    } : { provider: settings.provider };
+
+    const summary = await api(`/api/meetings/${current.id}/summary`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
     renderSummary(summary);
-    status('已完成 AI 會議整理。');
+    status(`已完成 AI 會議整理（${summary.provider || providerLabel}）。`);
   } catch (error) {
     status(error.message, true);
   } finally {

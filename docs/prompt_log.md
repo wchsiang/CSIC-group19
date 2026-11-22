@@ -1,6 +1,28 @@
 # AI interaction log — A & B modules
 
-## B 模組：AI 會議整理與待辦萃取（2026-11-22）
+## B 模組：介面 API Key 設定與多模型支援（Gemini / Claude / OpenAI）（2026-11-22）
+
+使用者提示原文：
+1. 「現在的ai整理部分看起來不像是由LLM整理，比較像是先hardcode完提取填入，是否應該直接請模型整理」
+2. 「現在是只要使用者在環境變數中設定LLM_API_KEY就會請LLM整理，如果沒有設定就會使用extract_heuristics對嗎」
+3. 「請幫我照你的建議改進，並且增加Claude的選擇」
+
+採用：
+1. `summarizer.py`：以 Python 標準庫實作 **Google Gemini API**、**Anthropic Claude API** 與 **OpenAI API** 的原生呼叫與結構化 JSON 解析，取消原有的靜默錯誤吞沒（Silent Fallback），提供明確錯誤訊息；新增 `test_llm_connection()` 供連線測試。
+2. `app.py`：新增 `/api/test-llm` 端點測試連線；`POST /api/meetings/{id}/summary` 支援接收前端傳入之 provider、api_key 與自訂 model；資料表記錄來源 `provider`。
+3. `static/`：
+   - 頁首新增「⚙️ AI 模型設定」按鈕與 `<dialog>` 彈出式視窗。
+   - 支援切換 Google Gemini、Anthropic Claude、OpenAI 與本機離線規則模式。
+   - 提供官方取 Key 連結、密碼眼睛切換、連線測試按鈕、清除金鑰功能。
+   - 金鑰以 `localStorage` 暫存於用戶瀏覽器，不儲存於伺服器資料庫。
+   - 摘要完成後顯示整理模型來源標籤（如 `✨ 由 Google Gemini 整理`）。
+4. `tests/test_module_b.py`：新增針對多模型解析的 Mock 單元測試與 `/api/test-llm` 測試，12 項測試全數通過。
+
+AI 工具：Antigravity AI (Gemini)。
+
+---
+
+## B 模組：AI 會議整理與待辦萃取初版（2026-11-22）
 
 使用者提示原文：「請幫我實作module B的部分，並新增test_module來驗證程式碼的可行性」
 

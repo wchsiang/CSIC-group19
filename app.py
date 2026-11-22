@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from summarizer import analyze_transcript
+from summarizer import analyze_transcript, test_llm_connection
 
 ROOT = Path(__file__).resolve().parent
 MAX_BODY = 1_000_000
@@ -26,9 +26,14 @@ class Store:
                 summary TEXT NOT NULL,
                 decisions TEXT NOT NULL,
                 action_items TEXT NOT NULL,
+                provider TEXT NOT NULL DEFAULT 'heuristic',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE)''')
+            try:
+                db.execute("ALTER TABLE summaries ADD COLUMN provider TEXT DEFAULT 'heuristic'")
+            except sqlite3.OperationalError:
+                pass
 
     @contextmanager
     def connect(self):
@@ -95,9 +100,10 @@ class Store:
             data['is_stale'] = (data['source_revision'] < meeting['revision'])
             data['decisions'] = json.loads(data['decisions'])
             data['action_items'] = json.loads(data['action_items'])
+            data['provider'] = data.get('provider') or 'heuristic'
             return data
 
-    def save_summary(self, meeting_id, source_revision, summary, decisions, action_items):
+    def save_summary(self, meeting_id, source_revision, summary, decisions, action_items, provider='heuristic'):
         if not isinstance(summary, str) or not summary.strip():
             raise ValueError('摘要內容不能為空。')
         if not isinstance(decisions, list):
@@ -109,13 +115,14 @@ class Store:
             meeting = db.execute('SELECT revision FROM meetings WHERE id=?', (meeting_id,)).fetchone()
             if not meeting:
                 raise KeyError(meeting_id)
-            db.execute('''INSERT INTO summaries (meeting_id, source_revision, summary, decisions, action_items, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+            db.execute('''INSERT INTO summaries (meeting_id, source_revision, summary, decisions, action_items, provider, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(meeting_id) DO UPDATE SET
                     source_revision=excluded.source_revision,
                     summary=excluded.summary,
                     decisions=excluded.decisions,
                     action_items=excluded.action_items,
+                    provider=excluded.provider,
                     updated_at=excluded.updated_at
             ''', (
                 meeting_id,
@@ -123,6 +130,7 @@ class Store:
                 summary.strip(),
                 json.dumps(decisions, ensure_ascii=False),
                 json.dumps(action_items, ensure_ascii=False),
+                provider,
                 now,
                 now
             ))
@@ -131,6 +139,7 @@ class Store:
             data['is_stale'] = (data['source_revision'] < meeting['revision'])
             data['decisions'] = json.loads(data['decisions'])
             data['action_items'] = json.loads(data['action_items'])
+            data['provider'] = data.get('provider') or 'heuristic'
             return data
 
 
@@ -208,28 +217,59 @@ def handler_for(store):
 
         def do_POST(self):
             path = self.path.split('?', 1)[0]
+            origin = self.headers.get('Origin')
+            if origin and origin != 'http://' + self.headers.get('Host', ''):
+                return self.reply(403, {'error': '不接受跨來源請求。'})
+
+            if path == '/api/test-llm':
+                length = int(self.headers.get('Content-Length', '0'))
+                try:
+                    data = json.loads(self.rfile.read(length).decode('utf-8')) if length > 0 else {}
+                    res = test_llm_connection(data.get('provider'), data.get('api_key'), data.get('model'))
+                    return self.reply(200, res)
+                except Exception as err:
+                    return self.reply(400, {'error': str(err)})
+
             if path.startswith('/api/meetings/') and path.endswith('/summary'):
                 meeting_id = path.removeprefix('/api/meetings/').removesuffix('/summary')
-                origin = self.headers.get('Origin')
-                if origin and origin != 'http://' + self.headers.get('Host', ''):
-                    return self.reply(403, {'error': '不接受跨來源請求。'})
                 meeting = store.get(meeting_id)
                 if not meeting:
                     return self.reply(404, {'error': '找不到會議。'})
                 if not meeting['transcript'].strip():
                     return self.reply(400, {'error': '會議內容為空，無法產生摘要。'})
+
+                req_data = {}
+                length = int(self.headers.get('Content-Length', '0'))
+                if length > 0 and 'application/json' in self.headers.get('Content-Type', ''):
+                    try:
+                        req_data = json.loads(self.rfile.read(length).decode('utf-8'))
+                    except Exception:
+                        req_data = {}
+
+                provider = req_data.get('provider') or self.headers.get('X-Provider')
+                api_key = req_data.get('api_key') or self.headers.get('X-API-Key')
+                model = req_data.get('model') or self.headers.get('X-Model')
+
                 try:
-                    analysis = analyze_transcript(meeting['transcript'], meeting['title'])
+                    analysis = analyze_transcript(
+                        meeting['transcript'],
+                        meeting['title'],
+                        provider=provider,
+                        api_key=api_key,
+                        model=model
+                    )
                     saved = store.save_summary(
                         meeting_id,
                         meeting['revision'],
                         analysis['summary'],
                         analysis['decisions'],
-                        analysis['action_items']
+                        analysis['action_items'],
+                        provider=analysis.get('provider', 'heuristic')
                     )
                     return self.reply(201, saved)
                 except Exception as error:
-                    return self.reply(500, {'error': f'摘要產生失敗：{str(error)}'})
+                    return self.reply(400, {'error': str(error)})
+
             self.write_meeting()
 
         def do_PUT(self):
@@ -256,7 +296,8 @@ def handler_for(store):
                         meeting['revision'],
                         data.get('summary', ''),
                         data.get('decisions', []),
-                        data.get('action_items', [])
+                        data.get('action_items', []),
+                        provider=data.get('provider', 'manual')
                     )
                     return self.reply(200, saved)
                 except (ValueError, KeyError) as error:

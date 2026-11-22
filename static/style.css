@@ -10,6 +10,7 @@
 .badge{display:inline-block;font-size:.75rem;padding:3px 8px;border-radius:12px;background:#e2e8f0;color:#475569;font-weight:600;vertical-align:middle}
 .badge-success{background:#dcfce7;color:#166534}
 .badge-warning{background:#fef3c7;color:#92400e}
+.provider-tag{display:inline-block;font-size:.75rem;padding:3px 8px;border-radius:12px;background:#e0f2fe;color:#0369a1;font-weight:600;margin-left:8px;vertical-align:middle}
 .alert-box{padding:14px 18px;border-radius:8px;margin-bottom:20px;font-size:.9rem;line-height:1.5}
 .alert-warning{background:#fffbeb;border:1px solid #fde68a;color:#92400e}
 .summary-block{margin-bottom:24px}
@@ -24,3 +25,30 @@
 .styled-table tr:last-child td{border-bottom:0}
 .styled-table tr:hover td{background:#f8fafc}
 #summary-meta{margin-top:12px}
+
+/* Header & Settings Button */
+.header-brand{display:flex;align-items:center;gap:12px}
+.settings-btn{font-size:.875rem;padding:7px 12px;background:#f0f4f8;color:#174f83;border:1px solid #cbd5e1;border-radius:8px;cursor:pointer}
+.settings-btn:hover{background:#e2e8f0}
+
+/* Settings Dialog Modal */
+.settings-dialog{border:0;border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.18);max-width:540px;width:92%;padding:0;background:white}
+.settings-dialog::backdrop{background:rgba(15,23,42,.45);backdrop-filter:blur(2px)}
+.dialog-content{padding:28px}
+.dialog-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.dialog-header h2{font-size:1.25rem;color:#173c5b;margin:0}
+.close-btn{background:transparent;border:0;font-size:1.5rem;line-height:1;cursor:pointer;color:#64748b;padding:4px}
+.close-btn:hover{color:#0f172a}
+.dialog-intro{font-size:.9rem;color:#475569;margin-bottom:20px}
+.form-select{width:100%;font:inherit;border:1px solid #a5b6c6;border-radius:8px;padding:10px;background:#fbfdff;color:inherit;margin-bottom:16px}
+.label-with-link{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.label-with-link a{font-size:.8rem;color:#174f83;text-decoration:none}
+.label-with-link a:hover{text-decoration:underline}
+.input-with-action{position:relative;display:flex;align-items:center}
+.input-with-action input{padding-right:40px}
+.icon-btn{position:absolute;right:8px;background:none;border:none;cursor:pointer;font-size:1.1rem;padding:4px;color:#64748b}
+.dialog-actions{display:flex;gap:10px;margin-top:24px;flex-wrap:wrap}
+.dialog-actions button{flex:1;min-width:110px}
+#test-status{margin-top:14px;font-size:.85rem}
+#test-status[data-error=true]{color:#a12626}
+#test-status[data-error=false]{color:#15803d}
