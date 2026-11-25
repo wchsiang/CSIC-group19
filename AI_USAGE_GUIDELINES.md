@@ -2,7 +2,7 @@
 
 ## Section 1 — What AI tools we plan to use, and what we will use each for
 
-- We will use Claude to brainstorm implementation approaches, generate boilerplate code, and create first-draft unit tests. We will not use it to make final architectural decisions or to write security-critical code such as authentication and authorization logic without human review.
+- Team members may use any LLM or AI coding assistant (e.g., Claude Code, Gemini, Cursor) for brainstorming, boilerplate code, and draft unit tests, provided the exact tool and model name are explicitly declared under `## AI assistance` (`Tool and model:`) in the PR description. If AI generates or modifies security-critical or core architectural logic (such as authentication, authorization, or database concurrency/locking), the PR author must document the specific human edits in `What I changed afterwards, and why` and pass line-by-line review from at least one teammate before merging.
 
 - We will use AI tools to generate an initial draft of documentation, comments, and test cases. A human team member must verify the accuracy and completeness of the generated content before it is added to the repository.
 
@@ -14,7 +14,7 @@
 
 - One-off questions, such as simple syntax checks, error-message explanations, or general programming questions that do not directly contribute to the final repository, do not require a prompt log entry.
 
-- Every pull request that contains AI-assisted work will include a brief statement indicating whether and how AI was used. The PR description does not need to contain the full conversation; it should point to the relevant prompt log when necessary.
+- Every pull request must complete the `## AI assistance` section of the PR template. If AI was used, the author must fill in all four fields—(1) tool and model, (2) specific files or functions generated, (3) a one-line summary of the instruction (or link to the full prompt/spec if long), and (4) what the author changed afterwards and why—rather than leaving a generic statement.
 
 - If an AI suggestion causes us to change our original technical approach or make an important design decision, the reasoning must also be recorded in `DECISIONS.md`. The decision record should explain the problem, the alternatives considered, and why the team chose the final approach.
 
@@ -26,6 +26,6 @@
 
 - Before AI-assisted code can be merged, it must pass the existing test suite, satisfy the project's linting and style requirements, and pass human code review.
 
-- At least one team member other than the person who generated the AI-assisted code must be able to explain what the code does and why it is correct before it is merged.
+- Before a PR is approved, the author must check off `I read every line of this change myself and can explain it without the AI` and provide concrete verification in `## How I checked it` (local/CI test status, manual checks/screenshots, or before/after prompt test suite results if prompts changed). Additionally, at least one reviewer must verify that the author's `What I changed afterwards, and why` and `Risks and alternatives` entries accurately match the actual diff before approving.
 
 - A team vote by itself is not considered sufficient evidence that AI-generated code is correct. If the disagreement cannot be resolved through tests, documentation, project conventions, or code review, the assigned code reviewer makes the final decision and records the reasoning in `DECISIONS.md` when the issue is significant.
