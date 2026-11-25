@@ -39,6 +39,7 @@ Node.js 僅供前端檢查使用；操作產品只需要 Python。前端測試�
 ## 開發與交接
 
 - [API、模組限制與人工驗收步驟](docs/meeting_input.md)
+- [D 模組：跨會議待辦總覽](docs/module_d.md)
 - [A 模組實作選擇與待團隊確認事項](DECISIONS.md)
 - [AI 提示詞紀錄](docs/prompt_log.md)
 - [PR 說明草稿與提交方式](docs/submission.md)

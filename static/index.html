@@ -16,6 +16,7 @@
 <main>
   <aside><div class="aside-heading"><h2>已儲存的會議</h2><button id="refresh" type="button">重新整理</button></div>
     <button id="new" class="primary" type="button">建立新會議</button>
+    <button id="todo-jump" type="button" class="todo-jump">📋 待辦總覽 <span id="todo-count"></span></button>
     <p id="list-status" role="status"></p><nav id="meetings" aria-label="選擇會議"></nav>
   </aside>
   <section>
@@ -83,6 +84,7 @@
                   <th>負責人</th>
                   <th>待辦事項</th>
                   <th>完成期限</th>
+                  <th>狀態</th>
                 </tr>
               </thead>
               <tbody id="action-items-body"></tbody>
@@ -132,6 +134,25 @@
       <div id="no-summary-hint" class="hint">
         此會議尚未產生 AI 摘要。儲存會議後點擊「產生 AI 摘要與待辦」即可自動整理。
       </div>
+    </div>
+
+    <!-- Module D: cross-meeting to-do overview -->
+    <div id="todo-section" class="summary-card" role="region" aria-labelledby="todo-heading">
+      <hr class="summary-divider">
+      <div class="summary-header">
+        <div>
+          <h2 id="todo-heading">待辦總覽</h2>
+          <p class="hint todo-intro">所有會議的行動項目。勾選即標記完成；重新產生摘要時會保留完成狀態。</p>
+        </div>
+        <button id="todo-refresh" type="button" class="secondary">重新整理</button>
+      </div>
+      <div class="todo-filters">
+        <label for="todo-assignee">負責人</label>
+        <select id="todo-assignee" class="form-select"></select>
+        <label class="draft-option"><input id="todo-show-done" type="checkbox"> 顯示已完成</label>
+      </div>
+      <p id="todo-status" class="hint" role="status" aria-live="polite"></p>
+      <ul id="todo-list" class="todo-list"></ul>
     </div>
   </section>
 </main>
