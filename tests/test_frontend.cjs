@@ -198,3 +198,65 @@ test('download preserves unsaved text and exports UTF-8 text only', async () => 
   assert.equal(revoked, 'blob:test');
   assert.equal(e('transcript').value, '我的未儲存文字');
 });
+
+// Module D: to-do overview
+const todos = [
+  {id: 'a', meeting_id: 'm1', meeting_title: '分工', assignee: '小明', task: '前端', due: null, status: 'open', origin: 'ai', missing_from_source: false, summary_stale: false},
+  {id: 'b', meeting_id: 'm1', meeting_title: '分工', assignee: '小華', task: '後端', due: '週五前', status: 'done', origin: 'manual', missing_from_source: false, summary_stale: true},
+  {id: 'c', meeting_id: 'm2', meeting_title: '第二次', assignee: '小明', task: '測試', due: null, status: 'open', origin: 'ai', missing_from_source: true, summary_stale: false},
+];
+test('to-do filter hides done items unless requested and filters by assignee', () => {
+  const {context} = browser();
+  const ids = (options) => [...context.filterTodos(todos, options)].map(item => item.id);
+  assert.deepEqual(ids({}), ['a', 'c']);
+  assert.deepEqual(ids({showDone: true}), ['a', 'b', 'c']);
+  assert.deepEqual(ids({assignee: '小明', showDone: true}), ['a', 'c']);
+  assert.deepEqual([...context.todoAssignees(todos)].sort(), ['小明', '小華'].sort());
+  assert.equal(context.todoStatusLabel(todos[1]), '✅ 已完成');
+  assert.equal(context.todoStatusLabel(todos[2]), '⚠️ 原文已無此項');
+});
+test('loading the overview tolerates unrelated responses and counts open items', async () => {
+  const {element: e, context} = browser();
+  await context.loadTodos();
+  assert.match(e('todo-status').textContent, /尚無待辦/);
+  context.fetch = async () => ({ok: true, json: async () => ({items: todos})});
+  await context.loadTodos();
+  assert.equal(e('todo-count').textContent, '(2)');
+  assert.match(e('todo-status').textContent, /顯示 2 項/);
+});
+test('checking a to-do sends only its status and reports failures without touching the form', async () => {
+  const {element: e, context} = browser();
+  e('transcript').value = '未儲存原文';
+  const requests = [];
+  context.fetch = async (url, options) => {
+    if (!options) return {ok: true, json: async () => ({items: todos})};
+    requests.push([url, options.method, JSON.parse(options.body)]);
+    return {ok: true, json: async () => ({...todos[0], status: 'done'})};
+  };
+  await context.setTodoStatus(todos[0], true);
+  await context.keepTodo(todos[2]);
+  assert.deepEqual(requests, [
+    ['/api/action-items/a', 'PUT', {status: 'done'}],
+    ['/api/action-items/c', 'PUT', {keep: true}],
+  ]);
+  context.fetch = async (url, options) => options
+    ? {ok: false, status: 404, json: async () => ({error: '找不到待辦事項。'})}
+    : {ok: true, json: async () => ({items: todos})};
+  await context.setTodoStatus(todos[0], false);
+  assert.equal(e('todo-status').dataset.error, 'true');
+  assert.equal(e('transcript').value, '未儲存原文');
+});
+test('dismissing a flagged to-do requires confirmation', async () => {
+  const {context} = browser();
+  let deletes = 0;
+  context.fetch = async (url, options) => {
+    if (options?.method === 'DELETE') deletes++;
+    return {ok: true, json: async () => ({items: []})};
+  };
+  context.window.confirm = () => false;
+  await context.dismissTodo(todos[2]);
+  assert.equal(deletes, 0);
+  context.window.confirm = () => true;
+  await context.dismissTodo(todos[2]);
+  assert.equal(deletes, 1);
+});

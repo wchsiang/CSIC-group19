@@ -147,6 +147,7 @@ async function loadList() {
       $('meetings').append(button);
     }
   } catch (error) { $('list-status').textContent = `無法載入會議：${error.message}`; }
+  loadTodos();
 }
 function setBusy(value) {
   busy = value;
@@ -454,13 +455,15 @@ function renderSummary(data) {
       tdTask.textContent = item.task;
       const tdDue = document.createElement('td');
       tdDue.textContent = item.due || '未指定期限';
-      tr.append(tdAssignee, tdTask, tdDue);
+      const tdStatus = document.createElement('td');
+      tdStatus.textContent = todoStatusLabel(item);
+      tr.append(tdAssignee, tdTask, tdDue, tdStatus);
       $('action-items-body').append(tr);
     }
   } else {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
-    td.colSpan = 3;
+    td.colSpan = 4;
     td.textContent = '無待辦事項紀錄。';
     td.className = 'hint';
     tr.append(td);
@@ -506,6 +509,7 @@ $('generate-summary').onclick = async () => {
       body: JSON.stringify(payload)
     });
     renderSummary(summary);
+    loadTodos();
     status(`已完成 AI 會議整理（${summary.provider || providerLabel}）。`);
   } catch (error) {
     status(error.message, true);
@@ -516,6 +520,8 @@ $('generate-summary').onclick = async () => {
 
 function createActionItemRow(item = { assignee: '', task: '', due: '' }) {
   const tr = document.createElement('tr');
+  // Keep the stored id so the server can match this row and preserve its done status.
+  if (item.id) tr.dataset.id = item.id;
 
   const tdAssignee = document.createElement('td');
   const inputAssignee = document.createElement('input');
@@ -604,7 +610,7 @@ $('save-summary-edit').onclick = async () => {
     if (!task) continue;
     const assignee = assigneeInput ? assigneeInput.value.trim() || '未指派' : '未指派';
     const due = dueInput && dueInput.value.trim() ? dueInput.value.trim() : null;
-    action_items.push({ assignee, task, due });
+    action_items.push(tr.dataset?.id ? { id: tr.dataset.id, assignee, task, due } : { assignee, task, due });
   }
 
   setBusy(true);
@@ -621,6 +627,7 @@ $('save-summary-edit').onclick = async () => {
       })
     });
     renderSummary(updated);
+    loadTodos();
     status('已成功儲存人工微調的會議摘要與待辦事項。');
   } catch (error) {
     status(error.message, true);
@@ -628,6 +635,169 @@ $('save-summary-edit').onclick = async () => {
     setBusy(false);
   }
 };
+
+// ── Module D: cross-meeting to-do overview ───────────────────────────────
+let todoItems = [];
+const ALL_ASSIGNEES = '';
+
+function todoStatusLabel(item) {
+  if (item.missing_from_source) return '⚠️ 原文已無此項';
+  return item.status === 'done' ? '✅ 已完成' : '待辦';
+}
+
+function filterTodos(items, { assignee = ALL_ASSIGNEES, showDone = false } = {}) {
+  return items.filter(item => (!assignee || item.assignee === assignee) && (showDone || item.status !== 'done'));
+}
+
+function todoAssignees(items) {
+  return [...new Set(items.map(item => item.assignee))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+}
+
+function todoStatus(message, error = false) {
+  $('todo-status').textContent = message;
+  $('todo-status').dataset.error = String(error);
+}
+
+async function loadTodos() {
+  try {
+    const body = await api('/api/action-items');
+    todoItems = Array.isArray(body.items) ? body.items : [];
+    renderTodos();
+  } catch (error) {
+    todoStatus(`無法載入待辦：${error.message}`, true);
+  }
+}
+
+function renderAssigneeOptions() {
+  const select = $('todo-assignee');
+  const selected = select.value;
+  const names = todoAssignees(todoItems);
+  const all = document.createElement('option');
+  all.value = ALL_ASSIGNEES;
+  all.textContent = '全部';
+  select.replaceChildren(all);
+  for (const name of names) {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    select.append(option);
+  }
+  select.value = names.includes(selected) ? selected : ALL_ASSIGNEES;
+}
+
+function todoButton(label, onclick) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'secondary todo-action';
+  button.textContent = label;
+  button.onclick = onclick;
+  return button;
+}
+
+function renderTodos() {
+  renderAssigneeOptions();
+  const openCount = todoItems.filter(item => item.status !== 'done').length;
+  $('todo-count').textContent = openCount ? `(${openCount})` : '';
+  const visible = filterTodos(todoItems, { assignee: $('todo-assignee').value, showDone: $('todo-show-done').checked });
+  $('todo-list').replaceChildren();
+  todoStatus(todoItems.length
+    ? `顯示 ${visible.length} 項，共 ${openCount} 項未完成。`
+    : '尚無待辦。開啟會議並產生 AI 摘要後，行動項目會出現在這裡。');
+
+  for (const item of visible) {
+    const li = document.createElement('li');
+    li.className = item.status === 'done' ? 'todo-item todo-done' : 'todo-item';
+
+    const check = document.createElement('input');
+    check.type = 'checkbox';
+    check.id = `todo-${item.id}`;
+    check.checked = item.status === 'done';
+    check.onchange = () => setTodoStatus(item, check.checked);
+    const label = document.createElement('label');
+    label.setAttribute('for', check.id);
+    label.textContent = item.task;
+
+    const meta = document.createElement('small');
+    meta.textContent = `${item.assignee} · ${item.due || '未指定期限'} · ${item.meeting_title}`;
+
+    const tags = document.createElement('span');
+    tags.className = 'todo-tags';
+    if (item.origin === 'ai') tags.append(todoTag('AI 產生 · 尚未確認', 'badge'));
+    if (item.summary_stale) tags.append(todoTag('摘要待更新', 'badge badge-warning'));
+
+    const body = document.createElement('div');
+    body.className = 'todo-body';
+    body.append(label, meta, tags);
+    li.append(check, body, todoButton('開啟會議', () => openMeetingFromTodo(item)));
+
+    if (item.missing_from_source) {
+      const flag = document.createElement('div');
+      flag.className = 'alert-box alert-warning todo-flag';
+      flag.textContent = '重新產生摘要時未在原文找到此項，請確認是否保留。';
+      flag.append(todoButton('保留', () => keepTodo(item)), todoButton('移除', () => dismissTodo(item)));
+      li.append(flag);
+    }
+    $('todo-list').append(li);
+  }
+}
+
+function todoTag(text, className) {
+  const tag = document.createElement('span');
+  tag.className = className;
+  tag.textContent = text;
+  return tag;
+}
+
+async function changeTodo(item, options, doneMessage) {
+  let message = doneMessage;
+  let failed = false;
+  try {
+    await api(`/api/action-items/${item.id}`, options);
+  } catch (error) {
+    message = error.message;
+    failed = true;
+  }
+  // Reload first (another device may have changed it), then show the outcome so
+  // the list summary does not hide an error.
+  await loadTodos();
+  todoStatus(message, failed);
+  if (current?.id === item.meeting_id) loadSummary(item.meeting_id);
+}
+
+function setTodoStatus(item, done) {
+  return changeTodo(item, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: done ? 'done' : 'open' }),
+  }, done ? `已完成：${item.task}` : `已改回待辦：${item.task}`);
+}
+
+function keepTodo(item) {
+  return changeTodo(item, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ keep: true }),
+  }, `已保留：${item.task}`);
+}
+
+function dismissTodo(item) {
+  if (!window.confirm(`確定移除待辦「${item.task}」？`)) return Promise.resolve();
+  return changeTodo(item, { method: 'DELETE' }, `已移除：${item.task}`);
+}
+
+async function openMeetingFromTodo(item) {
+  if (!mayLeave()) return;
+  setBusy(true);
+  try {
+    render(await api(`/api/meetings/${item.meeting_id}`));
+    status('已載入儲存的內容。');
+    $('summary-section').scrollIntoView?.({ behavior: 'smooth' });
+  } catch (error) { status(error.message, true); }
+  finally { setBusy(false); }
+}
+
+$('todo-assignee').onchange = renderTodos;
+$('todo-show-done').onchange = renderTodos;
+$('todo-refresh').onclick = loadTodos;
+$('todo-jump').onclick = () => $('todo-section').scrollIntoView?.({ behavior: 'smooth' });
 
 readDraft(true);
 loadList();

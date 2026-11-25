@@ -59,3 +59,22 @@
 #test-status{margin-top:14px;font-size:.85rem}
 #test-status[data-error=true]{color:#a12626}
 #test-status[data-error=false]{color:#15803d}
+
+/* Module D: to-do overview */
+.todo-jump{display:block;width:100%;margin-top:12px}
+.todo-intro{margin:6px 0 0}
+.todo-filters{display:grid;grid-template-columns:auto minmax(140px,240px) auto;align-items:center;gap:12px}
+.todo-filters label{margin:0}
+.todo-filters .form-select{margin:0}
+.todo-list{list-style:none;padding:0;margin:0}
+.todo-item{display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px;padding:14px 0;border-bottom:1px solid #edf2f7}
+.todo-item>input[type=checkbox]{width:20px;height:20px;margin-top:4px;flex:none}
+.todo-body{flex:1;min-width:0}
+.todo-body label{margin:0;font-weight:600;overflow-wrap:anywhere}
+.todo-body small{display:block;color:#526879;font-size:.85rem;overflow-wrap:anywhere}
+.todo-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.todo-done .todo-body label{text-decoration:line-through;color:#64748b}
+.todo-flag{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0 0 32px}
+.todo-action{padding:5px 10px;font-size:.85rem}
+#todo-status[data-error=true]{color:#a12626}
+@media(max-width:760px){.todo-filters{grid-template-columns:1fr}.todo-flag{margin-left:0}}
