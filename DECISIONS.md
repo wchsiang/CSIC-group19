@@ -64,3 +64,24 @@ Why: volunteered.
   2. 摘要以多行文字框（Textarea）編輯，決策支援換行直接增刪改，待辦表格支援單列即時修改、增行與刪除列。
   3. 儲存時前端自動發送 `PUT /api/meetings/{id}/summary`，將來源標籤更新為 `✨ 由 人工微調 整理`，不影響原文版本與 revision 樂觀鎖衝突機制。
 - 證據：`static/index.html`、`static/app.js`、`static/style.css`、`tests/test_module_b.py`。
+
+## 2026-11-25 — D 模組：跨會議待辦總覽與重新產生摘要時的待辦對應
+
+狀態：提案，待團隊審查。第 1、2 點會改動 B 的儲存流程（`save_summary`），合併前需 B 負責人（wchsiang）同意。
+
+Led by: Mushueh Chuang（以 Claude Code 協助實作，見 `docs/prompt_log.md`）。
+
+- 問題：B 把行動項目以 JSON 整包存在 `summaries`，項目沒有 id；重新產生或人工編輯摘要時會覆蓋整包。若 D 直接在 JSON 上加「完成」狀態，原文更新後重新產生摘要就會遺失使用者已勾選的完成狀態。
+- 選擇：
+  1. **獨立 `action_items` 資料表**：每個待辦有穩定 id、`status`（open／done）、`origin`（ai／manual）、`missing_from_source` 旗標。B 的 `summaries.action_items` JSON 保留為 AI 原始輸出快照。B 擁有內容（負責人、事項、期限），D 擁有狀態。
+  2. **由伺服器程式對應新舊清單（reconciliation）**：每次儲存摘要時，依序以 id、相同負責人＋相同事項（去除標點空白後）、相同負責人＋相似事項（相似度 ≥ 0.6）配對。配對成功保留 id 與完成狀態。
+  3. **AI 不刪除、只標記**：重新產生時，AI 沒再找到的舊項目不刪除，改標記「原文已無此項」，由使用者按「保留」或「移除」。人工編輯是使用者的明確決定，所以編輯時刪掉的列會真正刪除。
+  4. **AI 不覆蓋人工修改**：人工改過的項目（origin＝manual）在重新產生時保留人工內容。
+  5. **D 先於 C 完成**：尚無共同確認功能，總覽中 AI 產生的項目標示「AI 產生 · 尚未確認」；C 完成後可改為只顯示已確認項目。
+  6. **同時勾選採最後寫入為準**：完成狀態是單一欄位，不另加 revision 鎖；操作後重新載入清單，顯示其他裝置的最新狀態。
+- 暫緩方案：
+  - 在 JSON 加 `done` 欄位：最簡單，但重新產生即遺失狀態，且無法跨會議查詢。
+  - 讓模型輸出差異操作（keep／update／remove／add）：可處理改寫用詞，但離線規則引擎無法產生，提示詞與測試量約加倍，且 CP2 前時間不足。之後可在有 API 金鑰時改用，並以本次的程式對應作為離線備援。
+  - 等 C 完成再做 D：會讓 D 卡在尚未開始的模組。
+- 已知限制：相似度只比對同一負責人；負責人改名（例如「小明」→「明」）會視為新項目並把舊項目標記為「原文已無此項」。期限仍是原文文字，未轉成日期，因此無法排序或判斷逾期。尚未做組外使用者測試。
+- 證據：`app.py`（`_reconcile_action_items`、`/api/action-items`）、`static/`、`tests/test_module_d.py`、`tests/test_frontend.cjs`、`docs/module_d.md`。

@@ -1,4 +1,23 @@
-# AI interaction log — A & B modules
+# AI interaction log — A, B & D modules
+
+## D 模組：跨會議待辦總覽（2026-11-25）
+
+工具：Claude Code（Anthropic）。使用者：莊沐學。
+
+使用者提示原文（依序）：「What if we changed B so that the model generates changes instead of the whole blob?」→「Do your recommendation then」。
+
+AI 建議與使用者決定：AI 比較「JSON 加 done 欄位」、「模型輸出差異操作」與「獨立資料表＋伺服器對應」三案，建議 CP2 先採第三案、之後再升級為模型差異；使用者採納。理由與暫緩方案記於 `DECISIONS.md` 2026-11-25。
+
+採用：
+1. `app.py`：`action_items` 資料表、舊資料補建、`_reconcile_action_items` 對應邏輯、`GET/PUT/DELETE /api/action-items`，刪除會議時一併刪除待辦。
+2. `static/`：摘要表格新增狀態欄；編輯表單保留項目 id；待辦總覽（負責人篩選、顯示已完成、保留／移除標記項目、開啟會議）。
+3. `tests/test_module_d.py` 11 項、`tests/test_frontend.cjs` 新增 4 項。
+
+修改：新增的前端測試發現錯誤——更新失敗後重新載入清單，會用「顯示 N 項」蓋掉錯誤訊息，使用者看不到失敗。改為重新載入後再顯示結果並重跑通過。Chromium 截圖發現標記項目的「開啟會議」按鈕被擠到警告框下方，調整順序。
+
+驗證：`python -m unittest discover -s tests`（26 項）、`node --test tests/test_frontend.cjs`（17 項）、`node --check static/app.js` 通過；Playwright 操作完整流程無頁面錯誤。
+
+人工確認：需非作者組員（建議 B 負責人）審查。
 
 ## B 模組：介面 API Key 設定與多模型支援（Gemini / Claude / OpenAI）（2026-11-22）
 
