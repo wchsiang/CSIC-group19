@@ -1,22 +1,25 @@
 # AI interaction log — A & B modules
 
-## 區域網路連線開關 `--lan`（2026-11-23 至 2026-11-24）
+## 區域網路連線開關 `--lan`（2026-11-23 至 2026-11-25）
 
 使用者提示原文：
 1. 「add a switch to connect from local network instead of localhost (not default because currently no auth).」
 2. 「1. create a new branch for this feature and syncing (which will be implemented later) first, and write down what should be documented (refer to AI Usage Guidelines) 2. if possible, test whether `--lan` works as expected in CI」
 3. 「Iʼll manually push after syncing feature completes; related documents can be adjusted」
+4. 「Split local network support and syncing into two PRs」
+5. 「The sync commit will be rebased and partly rewritten after module D merged. Edit docs from the new branch that only contains local network support, then write PR description draft.」
+6. 「go ahead with the docs commit」
 
 採用：
-1. 建立 `feat/lan-sync` 分支，同時承載本功能與之後的同步功能。
+1. 原先建立 `feat/lan-sync` 分支，同時承載本功能與之後的同步功能；依第 4、5 點提示拆成兩個 PR，本功能改由只含 `--lan` 的 `feat/lan` 分支提出。
 2. `app.py`：新增 `--lan`（預設關閉）、`parse_args()` 與 `lan_ip()`；啟用時綁定 `0.0.0.0`，顯示區域網路網址與無驗證警告。啟動訊息改用實際連接埠，以支援 `--port 0`。
 3. `tests/test_lan.py`：檢查參數預設值；以子行程啟動真正的 `app.py`，驗證預設模式無法從區域網路 IP 連線、`--lan` 模式可連線，且帶區域網路 Origin 的 `POST /api/meetings` 回傳 201。若主機沒有非 loopback 的 IPv4 位址則略過。CI 既有的 `unittest discover` 步驟會自動執行，不需修改 workflow。
 4. 文件：README、`docs/meeting_input.md` 使用說明，`DECISIONS.md` 決策紀錄。
 
-修改：初版計畫沒有建立分支、AI 使用紀錄及 CI 測試；依第 2 點提示補上。依第 3 點提示，不由 AI 推送分支或建立 PR。
+修改：初版計畫沒有建立分支、AI 使用紀錄及 CI 測試；依第 2 點提示補上。依第 3 點提示，不由 AI 推送分支或建立 PR。依第 5 點提示，`DECISIONS.md` 與本紀錄改寫為只描述 `--lan`，並順帶移除 `docs/meeting_input.md` 中已過時的「未實作 AI 摘要」。
 未採用：預設開放 `0.0.0.0`、任意 `--host` 參數（理由見 `DECISIONS.md`）。
-驗證：本機 `python -m unittest discover -s tests -v` 全數通過，`test_lan` 的四項測試皆實際執行、未被略過。本機未安裝 Node.js，因此未執行前端檢查（本次未修改前端）。GitHub Actions 結果待推送後確認。
-尚待：他人審查並能說明程式碼（AI_USAGE_GUIDELINES.md 第 3 節）；同步功能。
+驗證（2026-11-25，`feat/lan`）：`python -m unittest discover -s tests -v` 19 項通過，`test_lan` 的四項測試皆實際執行、未被略過；`node --check static/app.js` 與 `node --test tests/test_frontend.cjs` 13 項通過（本次未修改前端）。GitHub Actions 結果待推送後確認。
+尚待：依更新後的 AI_USAGE_GUIDELINES.md，作者在 PR 勾選已逐行閱讀並能自行說明，審查者確認 PR 中的修改說明與風險和實際差異相符；多裝置同步另開 PR。
 
 AI 工具：Claude Code（Claude Opus 5.5）。
 
