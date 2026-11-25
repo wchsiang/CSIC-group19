@@ -69,7 +69,7 @@ Why: volunteered.
 
 狀態：提案，待團隊審查。第 1、2 點會改動 B 的儲存流程（`save_summary`），合併前需 B 負責人（wchsiang）同意。
 
-Led by: Mushueh Chuang（以 Claude Code 協助實作，見 `docs/prompt_log.md`）。
+Led by: 莊沐學（以 Claude Code 協助實作，見 `docs/prompt_log.md`）。
 
 - 問題：B 把行動項目以 JSON 整包存在 `summaries`，項目沒有 id；重新產生或人工編輯摘要時會覆蓋整包。若 D 直接在 JSON 上加「完成」狀態，原文更新後重新產生摘要就會遺失使用者已勾選的完成狀態。
 - 選擇：
