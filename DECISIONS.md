@@ -76,3 +76,6 @@ Why: volunteered.
 - 相容性：既有 Origin 檢查比對 `Origin` 與 `Host`，透過區域網路 IP 存取時仍可正常寫入，不需修改處理器。
 - 待辦：多裝置同步另開 PR，尚未提出。在可信任區域網路以外使用前，需先決定驗證／存取控制方式。
 - 證據：`app.py`（`parse_args`、`lan_ip`、`main`）、`tests/test_lan.py`、`docs/prompt_log.md`。
+
+## 2026-11-27 — Code steward 交接
+自 2026-11-27 起，由莊沐學接任林為皓的 code steward 職務。
