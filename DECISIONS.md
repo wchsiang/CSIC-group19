@@ -64,3 +64,6 @@ Why: volunteered.
   2. 摘要以多行文字框（Textarea）編輯，決策支援換行直接增刪改，待辦表格支援單列即時修改、增行與刪除列。
   3. 儲存時前端自動發送 `PUT /api/meetings/{id}/summary`，將來源標籤更新為 `✨ 由 人工微調 整理`，不影響原文版本與 revision 樂觀鎖衝突機制。
 - 證據：`static/index.html`、`static/app.js`、`static/style.css`、`tests/test_module_b.py`。
+
+- ## 2026-11-27 — Code steward 交接
+自 2026-11-27 起，由莊沐學接任林為皓的 code steward 職務。
