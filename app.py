@@ -1,6 +1,7 @@
 """A module: meeting text capture. Python standard library only."""
 import argparse
 import json
+import socket
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -326,14 +327,40 @@ def handler_for(store):
     return Handler
 
 
-def main():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=8000)
     parser.add_argument('--db', type=Path, default=ROOT / 'data' / 'meetings.sqlite3')
-    args = parser.parse_args()
+    parser.add_argument('--lan', action='store_true',
+                        help='listen on 0.0.0.0 so other devices on the local network can connect; '
+                             'no authentication, use only on trusted networks')
+    return parser.parse_args(argv)
+
+
+def lan_ip():
+    """Best-effort local network IPv4 address; connecting a UDP socket sends no packets."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(('10.255.255.255', 1))
+            return sock.getsockname()[0]
+    except OSError:
+        return None
+
+
+def main(argv=None):
+    args = parse_args(argv)
     args.db.parent.mkdir(parents=True, exist_ok=True)
-    server = ThreadingHTTPServer(('127.0.0.1', args.port), handler_for(Store(args.db)))
-    print(f'會議輸入：http://127.0.0.1:{args.port}', flush=True)
+    host = '0.0.0.0' if args.lan else '127.0.0.1'
+    server = ThreadingHTTPServer((host, args.port), handler_for(Store(args.db)))
+    port = server.server_port
+    print(f'會議輸入：http://127.0.0.1:{port}', flush=True)
+    if args.lan:
+        ip = lan_ip()
+        if ip:
+            print(f'區域網路：http://{ip}:{port}', flush=True)
+        else:
+            print(f'區域網路：請使用本機 IP 位址，連接埠 {port}', flush=True)
+        print('警告：未設定登入驗證，同一網路上的任何人都能讀取、修改、刪除會議；僅在信任的網路使用。', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
